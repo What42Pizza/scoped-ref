@@ -11,37 +11,37 @@
 //! 
 //! ```
 //! use scoped_static::*;
-//! fn spawn_threads_with_data(my_huge_data: &[u8]) {
-//! 	{
+//! fn spawn_threads_with_data(my_huge_data: Vec<u8>) {
+//!     {
 //!         // Create a type to represent our data
 //!         make_type_connector!(SliceU8 = <'a> [u8]);
 //!         // Create a scope for the data. This can be used to safely access the inner data as if it is `'static`
-//!         let scoped_data = ScopedRef::<SliceU8>::new(my_huge_data);
+//!         let scoped_data = ScopedRef::<SliceU8>::new(&*my_huge_data);
 //!         // Pin the scope (necessary for crate functionality)
 //!         let scoped_data = std::pin::pin!(scoped_data);
 //!         
 //!         // Create a `ScopedRefGuard` that can be passed to anything that takes `'static` data
-//!         let data_ref: ScopedRefGuard<SliceU8> = scoped_data.get_ref();
+//!         let data_ref: ScopedRefGuard<SliceU8> = scoped_data.new_ref();
 //!         std::thread::spawn(move || {
 //!             do_processing(data_ref.deref());
 //!         });
 //!         
 //!         // The first `data_ref` has been moved, create a separate one for this separate task
-//!         let data_ref: ScopedRefGuard<SliceU8> = scoped_data.get_ref();
+//!         let data_ref: ScopedRefGuard<SliceU8> = scoped_data.new_ref();
 //!         std::thread::spawn(move || {
 //!             do_more_processing(data_ref.deref());
 //!         });
 //!         
 //!         // Optionally, you can block on your own terms
 //!         // This gives you the option of setting a timeout, where you can set how many times it sleeps before returning `Err(())`
-//!         scoped_data.block_on_guards(Some(std::time::Duration::from_hours(1)));
-//!         let did_finished = !scoped_data.has_active_guards(); // if you give `None` to `block_on_guards` then `has_active_guards` should always return false (unless you call `get_ref()` in between)
+//!         scoped_data.await_guards(Some(std::time::Duration::from_hours(1)));
+//!         let did_finished = !scoped_data.has_active_guards(); // if you give `None` to `await_guards` then `has_active_guards` should always return false (unless you call `new_ref()` in between)
 //!         
 //!     }
-//!     // because the `pin!()`, you can only drop scoped_data by going out of scope
+//!     // because the `pin!()`, you can only drop `scoped_data` by going out of scope
 //!     // and doing so ensures that all references to `my_huge_data` are dropped before continuing
 //!     
-//!     // continue processing
+//!     drop(my_huge_data);
 //!     
 //! }
 //! fn do_processing(my_huge_data: &[u8]) {}
@@ -64,6 +64,9 @@ use crossbeam::sync::{Parker, Unparker};
 #[cfg(feature = "runtime-tokio")]
 use tokio::{runtime::Handle, sync::Notify};
 
+#[cfg(feature = "runtime-tokio")]
+pub use tokio;
+
 
 
 /// Allows you to create `ScopedRefGuards`, which can send non-`'static` data to anything that requires `'static` data.
@@ -79,8 +82,7 @@ pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
 	#[cfg(feature = "runtime-tokio")]
 	pub(crate) notify: Notify,
 	
-	/// The lifetime and connector type are only for api-level type safety but they still need to be 'stored' somewhere
-	pub phantom: PhantomData<&'a ConnectorType>,
+	pub(crate) phantom: PhantomData<&'a ConnectorType>,
 	
 }
 
@@ -112,7 +114,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	/// Returns a new guard that can be used to access `&T` as if it is `&'static T`
 	/// 
 	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
-	pub fn get_ref(self: &Pin<&mut Self>) -> ScopedRefGuard<ConnectorType> {
+	pub fn new_ref(self: &Pin<&mut Self>) -> ScopedRefGuard<ConnectorType> {
 		self.counter.fetch_add(1, Ordering::AcqRel);
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
@@ -127,7 +129,8 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	
 	/// Blocks until all guards have been dropped (is async on async runtimes)
 	#[cfg(feature = "runtime-std")]
-	pub fn block_on_guards(&self, timeout: Option<Duration>) {
+	pub fn await_guards(&self, timeout: Option<Duration>) {
+		if !self.has_active_guards() { return; }
 		if let Some(timeout) = timeout {
 			self.notify.park_timeout(timeout);
 		} else {
@@ -136,7 +139,8 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	}
 	/// Blocks until all guards have been dropped (is async on async runtimes)
 	#[cfg(feature = "runtime-tokio")]
-	pub async fn block_on_guards(&self, timeout: Option<Duration>) {
+	pub async fn await_guards(&self, timeout: Option<Duration>) {
+		if !self.has_active_guards() { return; }
 		if let Some(timeout) = timeout {
 			let notify_future = self.notify.notified();
 			let _possible_notify_future = tokio::time::timeout(timeout, notify_future).await;
@@ -157,13 +161,13 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 	fn drop(&mut self) {
 		#[cfg(feature = "runtime-std")]
 		{
-			self.block_on_guards(None);
+			self.await_guards(None);
 		}
 		#[cfg(feature = "runtime-tokio")]
 		{
 			tokio::task::block_in_place(move || {
 				Handle::current().block_on((async || {
-					self.block_on_guards(None).await;
+					self.await_guards(None).await;
 				})())
 			});
 		}
@@ -185,9 +189,12 @@ pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
 	#[cfg(feature = "runtime-tokio")]
 	pub(crate) notify: &'static Notify,
 	
-	pub(crate) phantom: PhantomData<ConnectorType>,
+	pub(crate) phantom: PhantomData<*mut ConnectorType>, // NOTE: the `*mut` is used to intentionally make `ScopedRefGuard` not Send/Sync
 	
 }
+
+unsafe impl<T> Send for ScopedRefGuard<T> where T: TypeConnector, for<'a> <T as TypeConnector>::Super<'a>: Send {}
+unsafe impl<T> Sync for ScopedRefGuard<T> where T: TypeConnector, for<'a> <T as TypeConnector>::Super<'a>: Sync {}
 
 impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 	/// Returns the inner data. This does not use the `Deref` trait because this requires special lifetimes
@@ -227,6 +234,21 @@ impl<'a, ConnectorType: TypeConnector> std::fmt::Debug for ScopedRefGuard<Connec
 impl<'a, ConnectorType: TypeConnector> std::fmt::Display for ScopedRefGuard<ConnectorType> where ConnectorType::Super<'a>: std::fmt::Display {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		self.deref().fmt(f)
+	}
+}
+
+impl<'a, ConnectorType: TypeConnector> Clone for ScopedRefGuard<ConnectorType> {
+	fn clone(&self) -> Self {
+		self.counter.fetch_add(1, Ordering::AcqRel);
+		Self {
+			data_ptr: self.data_ptr,
+			counter: self.counter,
+			#[cfg(feature = "runtime-std")]
+			notify: self.notify.clone(),
+			#[cfg(feature = "runtime-tokio")]
+			notify: self.notify,
+			phantom: PhantomData,
+		}
 	}
 }
 
@@ -326,17 +348,16 @@ mod tests {
 			let scoped_data = ScopedRef::<RefString>::new(&data);
 			let scoped_data = pin!(scoped_data);
 			
-			let data_ref = scoped_data.get_ref();
+			let data_ref = scoped_data.new_ref();
 			thread::spawn(move || {
 				println!("Sleeping for 1 second...");
 				thread::sleep(Duration::from_secs(1));
-				println!("{data_ref}");
+				println!("Data: {data_ref}");
 			});
 		} // the only way to drop scoped_data after being pinned is to put it in a scope
 		
 		println!("All threads finished!");
 	}
-	
 	#[cfg(feature = "runtime-tokio")]
 	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 	async fn basic_test() {
@@ -346,11 +367,11 @@ mod tests {
 			let scoped_data = ScopedRef::<RefString>::new(&data);
 			let scoped_data = pin!(scoped_data);
 			
-			let data_ref = scoped_data.get_ref();
+			let data_ref = scoped_data.new_ref();
 			thread::spawn(move || {
 				println!("Sleeping for 1 second...");
 				thread::sleep(Duration::from_secs(1));
-				println!("{data_ref}");
+				println!("Data: {data_ref}");
 			});
 		} // the only way to drop scoped_data after being pinned is to put it in a scope
 		
@@ -359,7 +380,7 @@ mod tests {
 	
 	#[cfg(feature = "runtime-std")]
 	#[test]
-	fn advanced_test() {
+	fn advanced_type_test() {
 		struct AdvancedType<'a> {
 			inner: &'a u8,
 		}
@@ -372,41 +393,104 @@ mod tests {
 			let scoped_data = ScopedRef::<RefAdvancedType>::new(&data);
 			let scoped_data = pin!(scoped_data);
 			
-			let data_ref = scoped_data.get_ref();
+			let data_ref = scoped_data.new_ref();
 			thread::spawn(move || {
 				println!("Sleeping for 1 second...");
 				thread::sleep(Duration::from_secs(1));
-				println!("{}", data_ref.deref().inner);
+				println!("Data: {}", data_ref.deref().inner);
+			});
+		} // the only way to drop scoped_data after being pinned is to put it in a scope
+		
+		println!("All threads finished!");
+	}
+	#[cfg(feature = "runtime-tokio")]
+	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+	async fn advanced_type_test() {
+		struct AdvancedType<'a> {
+			inner: &'a u8,
+		}
+		let inner = 128;
+		let data = AdvancedType {
+			inner: &inner,
+		};
+		{
+			make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
+			let scoped_data = ScopedRef::<RefAdvancedType>::new(&data);
+			let scoped_data = pin!(scoped_data);
+			
+			let data_ref = scoped_data.new_ref();
+			thread::spawn(move || {
+				println!("Sleeping for 1 second...");
+				thread::sleep(Duration::from_secs(1));
+				println!("Data: {}", data_ref.deref().inner);
 			});
 		} // the only way to drop scoped_data after being pinned is to put it in a scope
 		
 		println!("All threads finished!");
 	}
 	
+	#[cfg(feature = "runtime-std")]
+	#[test]
+	fn test_macro() {
+		
+		make_type_connector!(MyType *5 = <'a> Vec<&'a u8>);
+		
+		let inner_data = 0u8;
+		let _: <MyType as TypeConnector>::Super<'_> = vec!(&inner_data);
+		let _: <MyType as TypeConnector>::RawPointerStorage = [0; 5];
+		let _: <MyType as TypeConnector>::RawPointerStorage = <MyType as TypeConnector>::RAW_POINTER_DEFAULT;
+		
+	}
 	#[cfg(feature = "runtime-tokio")]
 	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-	async fn advanced_test() {
-		struct AdvancedType<'a> {
-			inner: &'a u8,
-		}
-		let inner = 128;
-		let data = AdvancedType {
-			inner: &inner,
-		};
-		{
-			make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
-			let scoped_data = ScopedRef::<RefAdvancedType>::new(&data);
-			let scoped_data = pin!(scoped_data);
-			
-			let data_ref = scoped_data.get_ref();
-			thread::spawn(move || {
-				println!("Sleeping for 1 second...");
-				thread::sleep(Duration::from_secs(1));
-				println!("{}", data_ref.deref().inner);
-			});
-		} // the only way to drop scoped_data after being pinned is to put it in a scope
+	async fn test_macro() {
 		
-		println!("All threads finished!");
+		make_type_connector!(MyType *5 = <'a> Vec<&'a u8>);
+		
+		let inner_data = 0u8;
+		let _: <MyType as TypeConnector>::Super<'_> = vec!(&inner_data);
+		let _: <MyType as TypeConnector>::RawPointerStorage = [0; 5];
+		let _: <MyType as TypeConnector>::RawPointerStorage = <MyType as TypeConnector>::RAW_POINTER_DEFAULT;
+		
+	}
+	
+	#[cfg(feature = "runtime-std")]
+	#[test]
+	fn test_std_traits() {
+		
+		make_type_connector!(SliceU8 = <'a> [u8]);
+		let data = vec!(1, 2, 3);
+		let scoped_data = ScopedRef::<SliceU8>::new(&*data);
+		let scoped_data = std::pin::pin!(scoped_data);
+		let data_ref = scoped_data.new_ref();
+		assert_eq!(format!("{data_ref:?}"), String::from("[1, 2, 3]"));
+		
+		make_type_connector!(U8 = <'a> u8);
+		let data = 123;
+		let scoped_data = ScopedRef::<U8>::new(&data);
+		let scoped_data = std::pin::pin!(scoped_data);
+		let data_ref = scoped_data.new_ref();
+		assert_eq!(format!("{data_ref}"), String::from("123"));
+		
+	}
+	#[cfg(feature = "runtime-tokio")]
+	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+	async fn test_std_traits() {
+		
+		make_type_connector!(SliceU8 = <'a> [u8]);
+		let data = vec!(1, 2, 3);
+		let scoped_data = ScopedRef::<SliceU8>::new(&*data);
+		let scoped_data = std::pin::pin!(scoped_data);
+		let data_ref = scoped_data.new_ref();
+		assert_eq!(format!("{data_ref:?}"), String::from("[1, 2, 3]"));
+		
+		make_type_connector!(U8 = <'a> u8);
+		let data = 123;
+		let scoped_data = ScopedRef::<U8>::new(&data);
+		let scoped_data = std::pin::pin!(scoped_data);
+		let data_ref = scoped_data.new_ref();
+		assert_eq!(format!("{data_ref}"), String::from("123"));
+		
 	}
 	
 }
