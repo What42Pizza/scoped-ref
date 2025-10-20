@@ -67,7 +67,7 @@ use tokio::runtime::Handle;
 /// 
 /// This works because the static-friendly guards prevent their parent `ScopeRef` from being dropped, meaning their data can always be accessed as if it is static. The resulting functionality is similar to lifetimes superpowers of `std::thread::scope()`, but available everywhere
 pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
-	pub(crate) data_ptr: ConnectorType::RawPointerStorage,
+	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'b ConnectorType::Super<'b>
 	pub(crate) counter: AtomicU32,
 	/// When this is dropped and it needs to wait for all guards to drop, it uses a simple `while count > 0 {sleep}` loop, and this sets how long that sleep duration is (the default is 10ms)
 	pub drop_sleep_dur: Duration,
@@ -77,7 +77,7 @@ pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
 
 impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	/// Creates a new `ScopedRef`. NOTE: you must `pin!()` the returned value for it to be usable!
-	pub fn new(data: impl Into<&'a ConnectorType::Super<'a>>) -> Self {
+	pub fn new(data: impl Into<&'a ConnectorType::Super<'a>>) -> Self where &'a ConnectorType::Super<'a>: Copy {
 		#[cfg(all(debug_assertions, feature = "tokio"))]
 		{
 			Handle::current(); // check whether this is being called within a valid tokio runtime (only checks in debug mode, exists bc the drop fn already needs the handle and seeing the panic in `new()` is probably better than in the drop)
@@ -90,7 +90,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		};
 		let data_ptr: &'a ConnectorType::Super<'a> = data.into();
 		unsafe {
-			// SAFETY: technically the soundness here is determined by the user of this crate, so technically this whole function should be unsafe, but hopefully it's fine to just leave is labeled as safe. The statement below should be safe as long as the type of `ScopedRef::data_ptr` is at least as big as `&ConnectorType::Super`
+			debug_assert!(std::mem::size_of::<ConnectorType::RawPointerStorage>() >= std::mem::size_of::<&'a ConnectorType::Super<'a>>(), "Undefined behaviour prevented: not enough storage for the given reference. In the call to the `make_connector_type!()` macro, please edit (or add) the size needed");
 			*(&mut output.data_ptr as *mut _ as *mut &'a ConnectorType::Super<'a>) = data_ptr;
 		}
 		output
@@ -166,7 +166,7 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 /// 
 /// A `ScopedRefGuard` can only be dropped once all references to it are dropped, and a `ScopedRef` can only be dropped once all `ScopedRefGuard`s have been dropped, and the underlying data `T` can only be dropped once the `ScopedRef` referencing it has been dropped
 pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
-	pub(crate) data_ptr: ConnectorType::RawPointerStorage,
+	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'b ConnectorType::Super<'b>
 	pub(crate) counter: &'static AtomicU32,
 	pub(crate) phantom: PhantomData<ConnectorType>,
 }
@@ -182,7 +182,7 @@ impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 		4: `T` can only be dropped after all references to `T` given by this function are dropped
 		*/
 		unsafe {
-			// SAFETY (casting): technically the soundness here is determined by the user of this crate, so technically this whole function should be unsafe, but hopefully it's fine to just leave is labeled as safe. The statement below should be safe as long as the type of `ScopedRef::data_ptr` is at least as big as `&ConnectorType::Super`
+			// SAFETY (reading): a `ScopedRefGuard` can only be made with `ScopedRef::new()`, which already implements a check to make sure this has enough space to store `&'b ConnectorType::Super<'b>`
 			std::ptr::read(&self.data_ptr as *const _ as *const &'b ConnectorType::Super<'b>)
 		}
 	}
