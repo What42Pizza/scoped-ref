@@ -34,7 +34,8 @@
 //!         
 //!         // Optionally, you can block on your own terms
 //!         // This gives you the option of setting a timeout, where you can set how many times it sleeps before returning `Err(())`
-//!         scoped_data.block_on_guards(100 * 60 * 60);
+//!         scoped_data.block_on_guards(Some(std::time::Duration::from_hours(1)));
+//!         let did_finished = !scoped_data.has_active_guards(); // if you give `None` to `block_on_guards` then `has_active_guards` should always return false (unless you call `get_ref()` in between)
 //!         
 //!     }
 //!     // because the `pin!()`, you can only drop scoped_data by going out of scope
@@ -57,9 +58,11 @@
 
 
 
-use std::{marker::PhantomData, pin::Pin, sync::atomic::{AtomicU32, Ordering}, time::Duration};
-#[cfg(feature = "tokio")]
-use tokio::runtime::Handle;
+use std::{marker::PhantomData, pin::Pin, sync::{atomic::{AtomicU32, Ordering}}, time::Duration};
+#[cfg(feature = "runtime-std")]
+use crossbeam::sync::{Parker, Unparker};
+#[cfg(feature = "runtime-tokio")]
+use tokio::{runtime::Handle, sync::Notify};
 
 
 
@@ -67,25 +70,35 @@ use tokio::runtime::Handle;
 /// 
 /// This works because the static-friendly guards prevent their parent `ScopeRef` from being dropped, meaning their data can always be accessed as if it is static. The resulting functionality is similar to lifetimes superpowers of `std::thread::scope()`, but available everywhere
 pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
+	
 	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'b ConnectorType::Super<'b>
 	pub(crate) counter: AtomicU32,
-	/// When this is dropped and it needs to wait for all guards to drop, it uses a simple `while count > 0 {sleep}` loop, and this sets how long that sleep duration is (the default is 10ms)
-	pub drop_sleep_dur: Duration,
+	
+	#[cfg(feature = "runtime-std")]
+	pub(crate) notify: Parker,
+	#[cfg(feature = "runtime-tokio")]
+	pub(crate) notify: Notify,
+	
 	/// The lifetime and connector type are only for api-level type safety but they still need to be 'stored' somewhere
 	pub phantom: PhantomData<&'a ConnectorType>,
+	
 }
 
 impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
+	
 	/// Creates a new `ScopedRef`. NOTE: you must `pin!()` the returned value for it to be usable!
 	pub fn new(data: impl Into<&'a ConnectorType::Super<'a>>) -> Self where &'a ConnectorType::Super<'a>: Copy {
-		#[cfg(all(debug_assertions, feature = "tokio"))]
+		#[cfg(all(debug_assertions, feature = "runtime-tokio"))]
 		{
 			Handle::current(); // check whether this is being called within a valid tokio runtime (only checks in debug mode, exists bc the drop fn already needs the handle and seeing the panic in `new()` is probably better than in the drop)
 		}
 		let mut output = Self {
 			data_ptr: ConnectorType::RAW_POINTER_DEFAULT,
 			counter: AtomicU32::new(0),
-			drop_sleep_dur: Duration::from_millis(10),
+			#[cfg(feature = "runtime-std")]
+			notify: Parker::new(),
+			#[cfg(feature = "runtime-tokio")]
+			notify: Notify::new(),
 			phantom: PhantomData,
 		};
 		let data_ptr: &'a ConnectorType::Super<'a> = data.into();
@@ -95,11 +108,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		}
 		output
 	}
-	/// When this is dropped and it needs to wait for all guards to drop, it uses a simple `while count > 0 {sleep}` loop, and this sets how long that sleep duration is (the default is 10ms)
-	pub fn with_sleep_dur(mut self, sleep_dur: Duration) -> Self {
-		self.drop_sleep_dur = sleep_dur;
-		self
-	}
+	
 	/// Returns a new guard that can be used to access `&T` as if it is `&'static T`
 	/// 
 	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
@@ -107,55 +116,56 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		self.counter.fetch_add(1, Ordering::AcqRel);
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
-			counter: unsafe {&*(&self.counter as *const _ as *const AtomicU32)}, // SAFETY: same safety as data_ptr, see `ScopedRefGuard::deref()` for reasoning
+			counter: unsafe {&*(&self.counter as *const _)}, // SAFETY: same safety as data_ptr, see `ScopedRefGuard::deref()` for reasoning
+			#[cfg(feature = "runtime-std")]
+			notify: self.notify.unparker().clone(),
+			#[cfg(feature = "runtime-tokio")]
+			notify: unsafe {&*(&self.notify as *const _)}, // SAFETY: same safety as data_ptr, see `ScopedRefGuard::deref()` for reasoning
 			phantom: PhantomData,
 		}
 	}
-	/// Blocks until all guards have been dropped, or returns an error if the max number of sleeps has been reached
-	#[cfg(not(feature = "tokio"))]
-	pub fn block_on_guards(&self, max_sleeps: u32) -> Result<(), ()> {
-		let mut remaining_sleeps = max_sleeps;
-		while self.counter.load(Ordering::Acquire) > 0 {
-			std::thread::sleep(self.drop_sleep_dur);
-			remaining_sleeps -= 1;
-			if remaining_sleeps == 0 { return Err(()) }
+	
+	/// Blocks until all guards have been dropped (is async on async runtimes)
+	#[cfg(feature = "runtime-std")]
+	pub fn block_on_guards(&self, timeout: Option<Duration>) {
+		if let Some(timeout) = timeout {
+			self.notify.park_timeout(timeout);
+		} else {
+			self.notify.park();
 		}
-		Ok(())
 	}
-	#[cfg(feature = "tokio")]
-	pub async fn block_on_guards(&self, max_sleeps: u32) -> Result<(), ()> {
-		let mut remaining_sleeps = max_sleeps;
-		while self.counter.load(Ordering::Acquire) > 0 {
-			tokio::time::sleep(self.drop_sleep_dur).await;
-			remaining_sleeps -= 1;
-			if remaining_sleeps == 0 { return Err(()) }
+	/// Blocks until all guards have been dropped (is async on async runtimes)
+	#[cfg(feature = "runtime-tokio")]
+	pub async fn block_on_guards(&self, timeout: Option<Duration>) {
+		if let Some(timeout) = timeout {
+			let notify_future = self.notify.notified();
+			let _possible_notify_future = tokio::time::timeout(timeout, notify_future).await;
+		} else {
+			self.notify.notified().await;
 		}
-		Ok(())
 	}
+	
 	/// Returns whether there are still living `ScopedRefGuard`s that would cause dropping this `ScopedRef` to block
 	pub fn has_active_guards(&self) -> bool {
 		self.counter.load(Ordering::Acquire) > 0
 	}
+	
 }
 
 // When ScopedRef is dropped, it must wait until all ScopedRefGuards have been dropped before continuing execution
 impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 	fn drop(&mut self) {
-		#[cfg(feature = "tokio")]
+		#[cfg(feature = "runtime-std")]
+		{
+			self.block_on_guards(None);
+		}
+		#[cfg(feature = "runtime-tokio")]
 		{
 			tokio::task::block_in_place(move || {
 				Handle::current().block_on((async || {
-					while self.counter.load(Ordering::Acquire) > 0 {
-						tokio::time::sleep(self.drop_sleep_dur).await;
-					}
+					self.block_on_guards(None).await;
 				})())
 			});
-		}
-		#[cfg(not(feature = "tokio"))]
-		{
-			while self.counter.load(Ordering::Acquire) > 0 {
-				std::thread::sleep(self.drop_sleep_dur);
-			}
 		}
 	}
 }
@@ -166,9 +176,17 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 /// 
 /// A `ScopedRefGuard` can only be dropped once all references to it are dropped, and a `ScopedRef` can only be dropped once all `ScopedRefGuard`s have been dropped, and the underlying data `T` can only be dropped once the `ScopedRef` referencing it has been dropped
 pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
+	
 	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'b ConnectorType::Super<'b>
 	pub(crate) counter: &'static AtomicU32,
+	
+	#[cfg(feature = "runtime-std")]
+	pub(crate) notify: Unparker,
+	#[cfg(feature = "runtime-tokio")]
+	pub(crate) notify: &'static Notify,
+	
 	pub(crate) phantom: PhantomData<ConnectorType>,
+	
 }
 
 impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
@@ -190,7 +208,13 @@ impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 
 impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> {
 	fn drop(&mut self) {
-		self.counter.fetch_sub(1, Ordering::AcqRel);
+		let prev_count = self.counter.fetch_sub(1, Ordering::AcqRel);
+		if prev_count == 1 {
+			#[cfg(feature = "runtime-std")]
+			self.notify.unpark();
+			#[cfg(feature = "runtime-tokio")]
+			self.notify.notify_waiters();
+		}
 	}
 }
 
@@ -293,7 +317,7 @@ mod tests {
     use crate::*;
 	use std::{thread, pin::pin};
 	
-	#[cfg(not(feature = "tokio"))]
+	#[cfg(feature = "runtime-std")]
 	#[test]
 	fn basic_test() {
 		let data = String::from("Test Data");
@@ -313,7 +337,7 @@ mod tests {
 		println!("All threads finished!");
 	}
 	
-	#[cfg(feature = "tokio")]
+	#[cfg(feature = "runtime-tokio")]
 	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 	async fn basic_test() {
 		let data = String::from("Test Data");
@@ -333,7 +357,7 @@ mod tests {
 		println!("All threads finished!");
 	}
 	
-	#[cfg(not(feature = "tokio"))]
+	#[cfg(feature = "runtime-std")]
 	#[test]
 	fn advanced_test() {
 		struct AdvancedType<'a> {
@@ -359,7 +383,7 @@ mod tests {
 		println!("All threads finished!");
 	}
 	
-	#[cfg(feature = "tokio")]
+	#[cfg(feature = "runtime-tokio")]
 	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 	async fn advanced_test() {
 		struct AdvancedType<'a> {
