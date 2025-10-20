@@ -1,6 +1,8 @@
 # Scoped Ref
 
-Similar functionality to `std::thread::scoped()`, but async-compatible, available everywhere, and keeps maximum performance. (usable with or without async/await)
+A fast, lightweight, and safe way to use non-`'static` data where `'static` is expected. This gives functionality similar to `std::thread::scoped()`, but this can be used anywhere, including async code.
+
+### Example usage: (not using async here, but the "runtime-tokio" feature is used by default)
 
 ```rust
 let my_huge_data: Vec<u8> = get_huge_data();
@@ -25,10 +27,11 @@ let my_huge_data: Vec<u8> = get_huge_data();
 	
 } // because the `pin!()`, you can only drop `scoped_data` by going out of scope
 
+// this is safe to do because `ScopedRef` ensures no references to it remain after dropping
 drop(my_huge_data);
 ```
 
-Comparisons to other similar crates:
+### Comparisons to other similar crates:
 
 | other crate | why use other crate? | why use this crate? |
 |-------------|----------------------|---------------------|
@@ -36,4 +39,12 @@ Comparisons to other similar crates:
 | [Scoped_Static](https://crates.io/crates/scoped_static) | Likely safer and easier | Likely faster |
 | [Async-Scoped](https://crates.io/crates/async-scoped) | Same as `std::thread::scope` but async | Likely faster |
 
-This was primarily made for use with the tokio runtime (which requires the "runtime-tokio" feature), but it can be used with no runtime (which requires the "runtime-std" feature), or others if others are requested.
+### This crate should be safe because:
+
+- The data referenced by `ScopedRef` cannot be dropped until the `ScopedRef` is dropped (enforced by Rust)
+- A `ScopedRef` cannot be dropped until all guards created from it are dropped (enforced with reference counting)
+- A `ScopedRefGuard` cannot be dropped until all references to it are dropped (enforced by Rust and this crate's api)
+- You cannot keep any references to a `ScopedRefGuard` by tricking the lifetime, because the signature (simplified) for retrieving the inner data is `fn deref<'a>(&'a self) -> &'a InnerData<'a>`
+- A `ScopedRefGuard<T>` only implements Send and/or Sync if `T` implements Send any/or Sync
+
+Although, I'm very experienced with unsafe code (which this crate uses a fair bit), so if you are experienced with preventing unsafe bugs, I'd highly appreciate extra safety reviews!

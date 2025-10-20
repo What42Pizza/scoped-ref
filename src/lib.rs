@@ -74,7 +74,7 @@ pub use tokio;
 /// This works because the static-friendly guards prevent their parent `ScopeRef` from being dropped, meaning their data can always be accessed as if it is static. The resulting functionality is similar to lifetimes superpowers of `std::thread::scope()`, but available everywhere
 pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
 	
-	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'b ConnectorType::Super<'b>
+	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
 	pub(crate) counter: AtomicU32,
 	
 	#[cfg(feature = "runtime-std")]
@@ -181,7 +181,7 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 /// A `ScopedRefGuard` can only be dropped once all references to it are dropped, and a `ScopedRef` can only be dropped once all `ScopedRefGuard`s have been dropped, and the underlying data `T` can only be dropped once the `ScopedRef` referencing it has been dropped
 pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
 	
-	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'b ConnectorType::Super<'b>
+	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
 	pub(crate) counter: &'static AtomicU32,
 	
 	#[cfg(feature = "runtime-std")]
@@ -198,7 +198,7 @@ unsafe impl<T> Sync for ScopedRefGuard<T> where T: TypeConnector, for<'a> <T as 
 
 impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 	/// Returns the inner data. This does not use the `Deref` trait because this requires special lifetimes
-	pub fn deref<'a, 'b: 'a>(&'a self) -> &'b ConnectorType::Super<'b> {
+	pub fn deref<'a>(&'a self) -> &'a ConnectorType::Super<'a> {
 		/*
 		SAFETY (lifetime): the lifetime should be safe because
 		1: the underlying data `T` can only be dropped after the `ScopedRef` referencing it is dropped
@@ -207,8 +207,8 @@ impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 		4: `T` can only be dropped after all references to `T` given by this function are dropped
 		*/
 		unsafe {
-			// SAFETY (reading): a `ScopedRefGuard` can only be made with `ScopedRef::new()`, which already implements a check to make sure this has enough space to store `&'b ConnectorType::Super<'b>`
-			std::ptr::read(&self.data_ptr as *const _ as *const &'b ConnectorType::Super<'b>)
+			// SAFETY (reading): a `ScopedRefGuard` can only be made with `ScopedRef::new()`, which already implements a check to make sure this has enough space to store `&'a ConnectorType::Super<'a>`
+			std::ptr::read(&self.data_ptr as *const _ as *const &'a ConnectorType::Super<'a>)
 		}
 	}
 }
@@ -225,13 +225,13 @@ impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> {
 	}
 }
 
-impl<'a, ConnectorType: TypeConnector> std::fmt::Debug for ScopedRefGuard<ConnectorType> where ConnectorType::Super<'a>: std::fmt::Debug {
+impl<ConnectorType: TypeConnector> std::fmt::Debug for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Debug {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		self.deref().fmt(f)
 	}
 }
 
-impl<'a, ConnectorType: TypeConnector> std::fmt::Display for ScopedRefGuard<ConnectorType> where ConnectorType::Super<'a>: std::fmt::Display {
+impl<ConnectorType: TypeConnector> std::fmt::Display for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Display {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		self.deref().fmt(f)
 	}
@@ -354,7 +354,7 @@ mod tests {
 				thread::sleep(Duration::from_secs(1));
 				println!("Data: {data_ref}");
 			});
-		} // the only way to drop scoped_data after being pinned is to put it in a scope
+		}
 		
 		println!("All threads finished!");
 	}
@@ -373,7 +373,7 @@ mod tests {
 				thread::sleep(Duration::from_secs(1));
 				println!("Data: {data_ref}");
 			});
-		} // the only way to drop scoped_data after being pinned is to put it in a scope
+		}
 		
 		println!("All threads finished!");
 	}
@@ -399,7 +399,7 @@ mod tests {
 				thread::sleep(Duration::from_secs(1));
 				println!("Data: {}", data_ref.deref().inner);
 			});
-		} // the only way to drop scoped_data after being pinned is to put it in a scope
+		}
 		
 		println!("All threads finished!");
 	}
@@ -424,7 +424,7 @@ mod tests {
 				thread::sleep(Duration::from_secs(1));
 				println!("Data: {}", data_ref.deref().inner);
 			});
-		} // the only way to drop scoped_data after being pinned is to put it in a scope
+		}
 		
 		println!("All threads finished!");
 	}
@@ -472,6 +472,11 @@ mod tests {
 		let data_ref = scoped_data.new_ref();
 		assert_eq!(format!("{data_ref}"), String::from("123"));
 		
+		let data_ref_2 = data_ref.clone();
+		assert_eq!(scoped_data.counter.load(Ordering::Acquire), 2);
+		drop(data_ref);
+		drop(data_ref_2);
+		
 	}
 	#[cfg(feature = "runtime-tokio")]
 	#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -490,6 +495,11 @@ mod tests {
 		let scoped_data = std::pin::pin!(scoped_data);
 		let data_ref = scoped_data.new_ref();
 		assert_eq!(format!("{data_ref}"), String::from("123"));
+		
+		let data_ref_2 = data_ref.clone();
+		assert_eq!(scoped_data.counter.load(Ordering::Acquire), 2);
+		drop(data_ref);
+		drop(data_ref_2);
 		
 	}
 	
