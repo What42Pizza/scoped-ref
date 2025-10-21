@@ -1,6 +1,6 @@
 # Scoped Ref
 
-A fast, lightweight, and safe way to use non-`'static` data where `'static` is expected. This gives functionality similar to `std::thread::scoped()`, but this can be used anywhere, including async code.
+A fast, lightweight, and safe way to use non-`'static` data where `'static` is expected. This gives functionality similar to `std::thread::scoped()`, but this can be used anywhere (including async code).
 
 ### Example usage: (not using async here, but the "runtime-tokio" feature is used by default)
 
@@ -11,7 +11,7 @@ let my_huge_data: Vec<u8> = get_huge_data();
 	// Step 1: create the scope
 	make_type_connector!(SliceU8 = <'a> [u8]);
 	let scoped_data = ScopedRef::<SliceU8>::new(&*my_huge_data);
-	let scoped_data = std::pin::pin!(scoped_data);
+	let scoped_data = std::pin::pin!(scoped_data); // needed unless the "no-pin" feature is enabled
 	
 	// Step 2: use the scope
 	let data_ref: ScopedRefGuard<SliceU8> = scoped_data.new_ref();
@@ -39,12 +39,11 @@ drop(my_huge_data);
 | [Scoped_Static](https://crates.io/crates/scoped_static) | Likely safer and easier | Likely faster |
 | [Async-Scoped](https://crates.io/crates/async-scoped) | Same as `std::thread::scope` but async | Likely faster |
 
-### This crate should be safe because:
+### Why is this crate likely the fastest?
 
-- The data referenced by `ScopedRef` cannot be dropped until the `ScopedRef` is dropped (enforced by Rust)
-- A `ScopedRef` cannot be dropped until all guards created from it are dropped (enforced with reference counting)
-- A `ScopedRefGuard` cannot be dropped until all references to it are dropped (enforced by Rust and this crate's api)
-- You cannot keep any references to a `ScopedRefGuard` by tricking the lifetime, because the signature (simplified) for retrieving the inner data is `fn deref<'a>(&'a self) -> &'a InnerData<'a>`
-- A `ScopedRefGuard<T>` only implements Send and/or Sync if `T` implements Send any/or Sync
+There are only three sources of overhead, which are:
+- Creating a new guard, which is a single atomic operation
+- Dropping a guard, which is a single atomic operation plus a cross-thread notify on last guard drop
+- Dropping a ScopedRef, which sleeps until notified
 
 Although, I'm very experienced with unsafe code (which this crate uses a fair bit), so if you are experienced with preventing unsafe bugs, I'd highly appreciate extra safety reviews!

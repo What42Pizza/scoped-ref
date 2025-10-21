@@ -17,7 +17,7 @@
 //!         make_type_connector!(SliceU8 = <'a> [u8]);
 //!         // Create a scope for the data. This can be used to safely access the inner data as if it is `'static`
 //!         let scoped_data = ScopedRef::<SliceU8>::new(&*my_huge_data);
-//!         // Pin the scope (necessary for crate functionality)
+//!         // Pin the scope (needed unless the "no-pin" feature is enabled)
 //!         let scoped_data = std::pin::pin!(scoped_data);
 //!         
 //!         // Create a `ScopedRefGuard` that can be passed to anything that takes `'static` data
@@ -58,11 +58,15 @@
 
 
 
-use std::{marker::PhantomData, pin::Pin, sync::{atomic::{AtomicU32, Ordering}}, time::Duration};
+use std::{marker::PhantomData, time::Duration};
 #[cfg(feature = "runtime-std")]
 use crossbeam::sync::{Parker, Unparker};
 #[cfg(feature = "runtime-tokio")]
 use tokio::{runtime::Handle, sync::Notify};
+#[cfg(not(feature = "no-pin"))]
+use std::{pin::Pin, sync::atomic::{AtomicU32, Ordering}};
+#[cfg(feature = "no-pin")]
+use std::sync::Arc;
 
 #[cfg(feature = "runtime-tokio")]
 pub use tokio;
@@ -75,7 +79,10 @@ pub use tokio;
 pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
 	
 	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
+	#[cfg(not(feature = "no-pin"))]
 	pub(crate) counter: AtomicU32,
+	#[cfg(feature = "no-pin")]
+	pub(crate) counter: Arc<()>,
 	
 	#[cfg(feature = "runtime-std")]
 	pub(crate) notify: Parker,
@@ -96,7 +103,10 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		}
 		let mut output = Self {
 			data_ptr: ConnectorType::RAW_POINTER_DEFAULT,
+			#[cfg(not(feature = "no-pin"))]
 			counter: AtomicU32::new(0),
+			#[cfg(feature = "no-pin")]
+			counter: Arc::new(()),
 			#[cfg(feature = "runtime-std")]
 			notify: Parker::new(),
 			#[cfg(feature = "runtime-tokio")]
@@ -114,11 +124,36 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	/// Returns a new guard that can be used to access `&T` as if it is `&'static T`
 	/// 
 	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
+	#[cfg(not(feature = "no-pin"))]
 	pub fn new_ref(self: &Pin<&mut Self>) -> ScopedRefGuard<ConnectorType> {
+		#[cfg(not(feature = "no-pin"))]
 		self.counter.fetch_add(1, Ordering::AcqRel);
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
+			#[cfg(not(feature = "no-pin"))]
 			counter: unsafe {&*(&self.counter as *const _)}, // SAFETY: same safety as data_ptr, see `ScopedRefGuard::deref()` for reasoning
+			#[cfg(feature = "no-pin")]
+			counter: self.counter.clone(),
+			#[cfg(feature = "runtime-std")]
+			notify: self.notify.unparker().clone(),
+			#[cfg(feature = "runtime-tokio")]
+			notify: unsafe {&*(&self.notify as *const _)}, // SAFETY: same safety as data_ptr, see `ScopedRefGuard::deref()` for reasoning
+			phantom: PhantomData,
+		}
+	}
+	/// Returns a new guard that can be used to access `&T` as if it is `&'static T`
+	/// 
+	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
+	#[cfg(feature = "no-pin")]
+	pub fn new_ref(&self) -> ScopedRefGuard<ConnectorType> {
+		#[cfg(not(feature = "no-pin"))]
+		self.counter.fetch_add(1, Ordering::AcqRel);
+		ScopedRefGuard {
+			data_ptr: self.data_ptr,
+			#[cfg(not(feature = "no-pin"))]
+			counter: unsafe {&*(&self.counter as *const _)}, // SAFETY: same safety as data_ptr, see `ScopedRefGuard::deref()` for reasoning
+			#[cfg(feature = "no-pin")]
+			counter: self.counter.clone(),
 			#[cfg(feature = "runtime-std")]
 			notify: self.notify.unparker().clone(),
 			#[cfg(feature = "runtime-tokio")]
@@ -151,7 +186,10 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	
 	/// Returns whether there are still living `ScopedRefGuard`s that would cause dropping this `ScopedRef` to block
 	pub fn has_active_guards(&self) -> bool {
-		self.counter.load(Ordering::Acquire) > 0
+		#[cfg(not(feature = "no-pin"))]
+		{ self.counter.load(Ordering::Acquire) > 0}
+		#[cfg(feature = "no-pin")]
+		{ Arc::strong_count(&self.counter) == 0 }
 	}
 	
 }
@@ -182,7 +220,10 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
 	
 	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
+	#[cfg(not(feature = "no-pin"))]
 	pub(crate) counter: &'static AtomicU32,
+	#[cfg(feature = "no-pin")]
+	pub(crate) counter: Arc<()>,
 	
 	#[cfg(feature = "runtime-std")]
 	pub(crate) notify: Unparker,
@@ -215,12 +256,24 @@ impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 
 impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> {
 	fn drop(&mut self) {
-		let prev_count = self.counter.fetch_sub(1, Ordering::AcqRel);
-		if prev_count == 1 {
-			#[cfg(feature = "runtime-std")]
-			self.notify.unpark();
-			#[cfg(feature = "runtime-tokio")]
-			self.notify.notify_waiters();
+		#[cfg(not(feature = "no-pin"))]
+		{
+			let prev_count = self.counter.fetch_sub(1, Ordering::AcqRel);
+			if prev_count == 1 {
+				#[cfg(feature = "runtime-std")]
+				self.notify.unpark();
+				#[cfg(feature = "runtime-tokio")]
+				self.notify.notify_waiters();
+			}
+		}
+		#[cfg(feature = "no-pin")]
+		{
+			if Arc::strong_count(&self.counter) == 2 {
+				#[cfg(feature = "runtime-std")]
+				self.notify.unpark();
+				#[cfg(feature = "runtime-tokio")]
+				self.notify.notify_waiters();
+			}
 		}
 	}
 }
@@ -239,10 +292,14 @@ impl<ConnectorType: TypeConnector> std::fmt::Display for ScopedRefGuard<Connecto
 
 impl<'a, ConnectorType: TypeConnector> Clone for ScopedRefGuard<ConnectorType> {
 	fn clone(&self) -> Self {
+		#[cfg(not(feature = "no-pin"))]
 		self.counter.fetch_add(1, Ordering::AcqRel);
 		Self {
 			data_ptr: self.data_ptr,
+			#[cfg(not(feature = "no-pin"))]
 			counter: self.counter,
+			#[cfg(feature = "no-pin")]
+			counter: self.counter.clone(),
 			#[cfg(feature = "runtime-std")]
 			notify: self.notify.clone(),
 			#[cfg(feature = "runtime-tokio")]
@@ -332,7 +389,17 @@ macro_rules! make_type_connector {
 	};
 }
 
-
+/*
+To test all situations, run:
+cargo test
+cargo test --no-default-features --features runtime-std
+cargo test --features no-pin
+cargo test --no-default-features --features runtime-std,no-pin
+cargo test --release
+cargo test --release --no-default-features --features runtime-std
+cargo test --release --features no-pin
+cargo test --release --no-default-features --features runtime-std,no-pin
+*/
 
 #[cfg(test)]
 mod tests {
@@ -461,6 +528,7 @@ mod tests {
 		make_type_connector!(SliceU8 = <'a> [u8]);
 		let data = vec!(1, 2, 3);
 		let scoped_data = ScopedRef::<SliceU8>::new(&*data);
+		#[cfg(not(feature = "no-pin"))]
 		let scoped_data = std::pin::pin!(scoped_data);
 		let data_ref = scoped_data.new_ref();
 		assert_eq!(format!("{data_ref:?}"), String::from("[1, 2, 3]"));
@@ -468,12 +536,16 @@ mod tests {
 		make_type_connector!(U8 = <'a> u8);
 		let data = 123;
 		let scoped_data = ScopedRef::<U8>::new(&data);
+		#[cfg(not(feature = "no-pin"))]
 		let scoped_data = std::pin::pin!(scoped_data);
 		let data_ref = scoped_data.new_ref();
 		assert_eq!(format!("{data_ref}"), String::from("123"));
 		
 		let data_ref_2 = data_ref.clone();
+		#[cfg(not(feature = "no-pin"))]
 		assert_eq!(scoped_data.counter.load(Ordering::Acquire), 2);
+		#[cfg(feature = "no-pin")]
+		assert_eq!(Arc::strong_count(&scoped_data.counter), 3);
 		drop(data_ref);
 		drop(data_ref_2);
 		
@@ -485,6 +557,7 @@ mod tests {
 		make_type_connector!(SliceU8 = <'a> [u8]);
 		let data = vec!(1, 2, 3);
 		let scoped_data = ScopedRef::<SliceU8>::new(&*data);
+		#[cfg(not(feature = "no-pin"))]
 		let scoped_data = std::pin::pin!(scoped_data);
 		let data_ref = scoped_data.new_ref();
 		assert_eq!(format!("{data_ref:?}"), String::from("[1, 2, 3]"));
@@ -492,12 +565,16 @@ mod tests {
 		make_type_connector!(U8 = <'a> u8);
 		let data = 123;
 		let scoped_data = ScopedRef::<U8>::new(&data);
+		#[cfg(not(feature = "no-pin"))]
 		let scoped_data = std::pin::pin!(scoped_data);
 		let data_ref = scoped_data.new_ref();
 		assert_eq!(format!("{data_ref}"), String::from("123"));
 		
 		let data_ref_2 = data_ref.clone();
+		#[cfg(not(feature = "no-pin"))]
 		assert_eq!(scoped_data.counter.load(Ordering::Acquire), 2);
+		#[cfg(feature = "no-pin")]
+		assert_eq!(Arc::strong_count(&scoped_data.counter), 3);
 		drop(data_ref);
 		drop(data_ref_2);
 		
