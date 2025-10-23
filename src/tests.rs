@@ -1,4 +1,4 @@
-#[allow(unused_imports)] // idk why rust says this is unused
+#[allow(unused_imports)] // idk why rust (sometimes) says this is unused
 use crate::*;
 
 
@@ -20,17 +20,18 @@ cargo test --release --no-default-features --features drop-does-block,runtime-to
 #[cfg(feature = "runtime-none")]
 #[test]
 fn basic_test() {
-	use std::{pin::pin, thread, time::Duration};
+	use std::{thread, time::Duration};
 	let data = String::from("Test Data");
 	{
 		make_type_connector!(RefString *1 = <'a> String);
 		let scoped_data = ScopedRef::<RefString>::new(&data);
-		let scoped_data = pin!(scoped_data);
+		#[cfg(not(feature = "no-pin"))]
+		let scoped_data = std::pin::pin!(scoped_data);
 		
 		let data_ref = scoped_data.new_ref();
 		thread::spawn(move || {
-			println!("Sleeping for 1 second...");
-			thread::sleep(Duration::from_secs(1));
+			println!("Sleeping for 0.1 seconds...");
+			thread::sleep(Duration::from_millis(100));
 			println!("Data: {data_ref}");
 		});
 	}
@@ -40,17 +41,18 @@ fn basic_test() {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn basic_test() {
-	use std::{pin::pin, thread, time::Duration};
+	use std::{thread, time::Duration};
 	let data = String::from("Test Data");
 	{
 		make_type_connector!(RefString *1 = <'a> String);
 		let scoped_data = ScopedRef::<RefString>::new(&data);
-		let scoped_data = pin!(scoped_data);
+		#[cfg(not(feature = "no-pin"))]
+		let scoped_data = std::pin::pin!(scoped_data);
 		
 		let data_ref = scoped_data.new_ref();
 		thread::spawn(move || {
-			println!("Sleeping for 1 second...");
-			thread::sleep(Duration::from_secs(1));
+			println!("Sleeping for 0.1 seconds...");
+			thread::sleep(Duration::from_millis(100));
 			println!("Data: {data_ref}");
 		});
 	}
@@ -61,7 +63,6 @@ async fn basic_test() {
 #[cfg(feature = "runtime-none")]
 #[test]
 fn advanced_type_test() {
-	use std::{thread, pin::pin, time::Duration};
 	struct AdvancedType<'a> {
 		inner: &'a u8,
 	}
@@ -72,12 +73,11 @@ fn advanced_type_test() {
 	{
 		make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
 		let scoped_data = ScopedRef::<RefAdvancedType>::new(&data);
-		let scoped_data = pin!(scoped_data);
+		#[cfg(not(feature = "no-pin"))]
+		let scoped_data = std::pin::pin!(scoped_data);
 		
 		let data_ref = scoped_data.new_ref();
-		thread::spawn(move || {
-			println!("Sleeping for 1 second...");
-			thread::sleep(Duration::from_secs(1));
+		std::thread::spawn(move || {
 			println!("Data: {}", data_ref.inner().inner);
 		});
 	}
@@ -87,7 +87,6 @@ fn advanced_type_test() {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn advanced_type_test() {
-	use std::{pin::pin, thread, time::Duration};
 	struct AdvancedType<'a> {
 		inner: &'a u8,
 	}
@@ -98,12 +97,11 @@ async fn advanced_type_test() {
 	{
 		make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
 		let scoped_data = ScopedRef::<RefAdvancedType>::new(&data);
-		let scoped_data = pin!(scoped_data);
+		#[cfg(not(feature = "no-pin"))]
+		let scoped_data = std::pin::pin!(scoped_data);
 		
 		let data_ref = scoped_data.new_ref();
-		thread::spawn(move || {
-			println!("Sleeping for 1 second...");
-			thread::sleep(Duration::from_secs(1));
+		std::thread::spawn(move || {
 			println!("Data: {}", data_ref.inner().inner);
 		});
 	}
@@ -174,7 +172,7 @@ fn test_std_traits() {
 async fn test_std_traits() {
 	#[cfg(not(feature = "no-pin"))]
 	use std::sync::atomic::Ordering;
-	#[cfg(all(feature = "no-pin", feature = "runtime-tokio"))]
+	#[cfg(feature = "no-pin")]
 	use std::sync::Arc;
 	
 	make_type_connector!(SliceU8 = <'a> [u8]);
@@ -194,13 +192,9 @@ async fn test_std_traits() {
 	assert_eq!(format!("{data_ref}"), String::from("123"));
 	
 	let data_ref_2 = data_ref.clone();
-	#[cfg(all(not(feature = "no-pin"), feature = "runtime-none"  ))]
+	#[cfg(not(feature = "no-pin"))]
 	assert_eq!(scoped_data.counter_notify.0.load(Ordering::Acquire), 2);
-	#[cfg(all(    feature = "no-pin" , feature = "runtime-none"  ))]
-	assert_eq!(Arc::strong_count(&scoped_data.counter_notify), 3);
-	#[cfg(all(not(feature = "no-pin"), feature = "runtime-tokio"))]
-	assert_eq!(scoped_data.counter_notify.0.load(Ordering::Acquire), 2);
-	#[cfg(all(    feature = "no-pin" , feature = "runtime-tokio"))]
+	#[cfg(feature = "no-pin")]
 	assert_eq!(Arc::strong_count(&scoped_data.counter_notify), 3);
 	drop(data_ref);
 	drop(data_ref_2);

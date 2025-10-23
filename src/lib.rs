@@ -72,12 +72,21 @@ pub mod type_connector;
 pub use type_connector::*;
 mod tests;
 
+#[cfg(feature = "runtime-none")]
+pub use crossbeam;
 #[cfg(feature = "runtime-tokio")]
 pub use tokio;
 
 
 
+// ensure features are used correctly:
+
 #[cfg(not(any(feature = "runtime-none", feature = "runtime-tokio")))]
 compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"runtime-none\", \"runtime-tokio\"");
 #[cfg(not(any(feature = "drop-does-block", feature = "unsafe-drop-does-panic", feature = "unsafe-drop-does-nothing")))]
 compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"drop-does-block\", \"unsafe-drop-does-panic\", \"unsafe-drop-does-nothing\"");
+
+#[cfg(all(feature = "tokio", not(feature = "runtime-tokio")))]
+compile_error!("You must not use the \"tokio\" feature directly, use \"runtime-tokio\" instead");
+#[cfg(all(feature = "crossbeam", not(feature = "runtime-none")))]
+compile_error!("You must not use the \"crossbeam\" feature directly, use \"runtime-none\" instead");

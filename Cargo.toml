@@ -2,6 +2,12 @@
 name = "scoped-ref"
 version = "0.1.0"
 edition = "2024"
+license = "CC0-1.0"
+description = "A fast, lightweight, and safe way to use non-static data where static is expected"
+repository = "https://github.com/What42Pizza/scoped-ref"
+readme = "readme.md"
+keywords = []
+categories = []
 
 [dependencies]
 tokio = { version = "1", optional = true }
