@@ -1,5 +1,5 @@
 [package]
-name = "scoped-static"
+name = "scoped-ref"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,7 +8,10 @@ tokio = { version = "1", optional = true }
 crossbeam = { version = "0.8", optional = true }
 
 [features]
-default = [ "runtime-std" ]
-runtime-std = [ "crossbeam" ]
+default = [ "runtime-tokio", "drop-does-block" ]
+runtime-none = [ "crossbeam" ]
 runtime-tokio = [ "tokio", "tokio/rt-multi-thread", "tokio/time", "tokio/macros", "tokio/sync" ]
 no-pin = []
+drop-does-block = []
+unsafe-drop-does-panic = []
+unsafe-drop-does-nothing = []

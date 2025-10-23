@@ -83,7 +83,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "scoped-static"
+name = "scoped-ref"
 version = "0.1.0"
 dependencies = [
  "crossbeam",
