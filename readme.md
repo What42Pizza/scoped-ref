@@ -52,13 +52,12 @@ There are only three sources of overhead, which are:
 
 ### Crate features:
 
-You must choose one of these:
-- "runtime-none": Specifies using no special runtime
-- "runtime-tokio": Specifies using the tokio runtime (enabled by default)
-- "no-pin": Allows more flexibility (no pinning required), but adds heap allocation
-- "drop-does-block": Causes the drop function of `ScopedRef` to block until all guards have been dropped (enabled by default)
-- "unsafe-drop-does-panic": Causes the drop function of `ScopedRef` to panic if there are still have guards active (this is considered unsafe because when it does panic, the unwind will essentially always deallocate data that is still being used)
-- "unsafe-drop-does-nothing": Causes the drop function of `ScopedRef` to do nothing, even if there are still guards active. 
+- `"runtime-none"`: Specifies using no special runtime
+- `"runtime-tokio"`: Specifies using the tokio runtime (enabled by default)
+- `"no-pin"`: Allows more flexibility (no pinning required), but adds heap allocation
+- `"drop-does-block"`: Causes the drop function of `ScopedRef` to block until all guards have been dropped (enabled by default)
+- `"unsafe-drop-does-panic"`: Causes the drop function of `ScopedRef` to panic if there are still have guards active (this is considered unsafe because when it does panic, the unwind will essentially always deallocate data that is still being used)
+- `"unsafe-drop-does-nothing"`: Causes the drop function of `ScopedRef` to do nothing, even if there are still guards active. 
 
 ### Potential problems:
 

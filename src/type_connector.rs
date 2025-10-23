@@ -1,3 +1,14 @@
+//! Rust has a really annoying restriction that almost stops this crate from being useful in a lot of scenarios, which is the fact that if a type can a type parameter with non-`'static` references in it, the entire type becomes non-`'static`, even if the type's internals and functionality should be `'static`. Even this struct: `struct MyStruct<T> (PhantomData<T>);` will not be `'static` unless `T` is `'static`. This means you cannot use a type like `ScopedRefGuard<&'a [u8]>` (which would hold a reference to `&&'a [u8]`) because the mere presence of the non-`'static` lifetime makes the entire guard non-`'static`.
+//! 
+//! To get around this limitation, `ScopedRef` and `ScopedRefGuard` use a marker type to just represent the actual type being referenced. This is how that works:
+//! 
+//! - 1: `ScopedRef` and `ScopedRefGuard` both take any type that implements the [TypeConnector](TypeConnector) trait
+//! - 2: The `TypeConnector` trait has an associated type that defines the actual type being referenced
+//! - 3: When `ScopedRef` or `ScopedRefGuard` need to access the actual type being referenced, they just use `TypeConnector::Super`
+//!   - For example, just look at [ScopedRefGuard::inner()](ScopedRefGuard::inner()), which has the signature `fn inner(&self) -> &ConnectorType::Super` (note: `TypeConnector` is the name of the trait, and `ConnectorType` is the name of the generic that implements `TypeConnector`)
+
+
+
 /// A type meant solely for enforcing type safety. To create this type, please go to [make_type_connector](make_type_connector!())
 pub trait TypeConnector: 'static {
 	/// This specifies the type that this `TypeConnector` represents
@@ -7,6 +18,8 @@ pub trait TypeConnector: 'static {
 	/// This is just the default value that is held before the pointer is copied in
 	const RAW_POINTER_DEFAULT: Self::RawPointerStorage;
 }
+
+
 
 /// This is a utility for creating structs that implement [TypeConnector](TypeConnector)
 /// 

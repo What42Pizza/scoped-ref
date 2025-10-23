@@ -18,6 +18,8 @@ use std::sync::Arc;
 /// Similar to something like `MutexGuard`, but for keeping track of the number of references to `T`.
 /// 
 /// A `ScopedRefGuard` can only be dropped once all references to it are dropped, and a `ScopedRef` can only be dropped once all `ScopedRefGuard`s have been dropped, and the underlying data `T` can only be dropped once the `ScopedRef` referencing it has been dropped
+/// 
+/// Also, this type only implements `Send` and/or `Sync` when the underlying reference implements `Send` and/or `Sync`
 pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
 	
 	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>

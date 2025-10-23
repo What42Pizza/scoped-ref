@@ -5,14 +5,14 @@ use crate::*;
 
 /*
 To test all situations, run:
-cargo test
-cargo test --no-default-features --features runtime-none,drop-does-block
-cargo test --features no-pin
-cargo test --no-default-features --features runtime-none,drop-does-block,no-pin
-cargo test --release
-cargo test --release --no-default-features --features runtime-none,drop-does-block
-cargo test --release --features no-pin
-cargo test --release --no-default-features --features runtime-none,drop-does-block,no-pin
+cargo test --no-default-features --features drop-does-block,runtime-none
+cargo test --no-default-features --features drop-does-block,runtime-tokio
+cargo test --no-default-features --features drop-does-block,runtime-none,no-pin
+cargo test --no-default-features --features drop-does-block,runtime-tokio,no-pin
+cargo test --release --no-default-features --features drop-does-block,runtime-none
+cargo test --release --no-default-features --features drop-does-block,runtime-tokio
+cargo test --release --no-default-features --features drop-does-block,runtime-none,no-pin
+cargo test --release --no-default-features --features drop-does-block,runtime-tokio,no-pin
 */
 
 

@@ -13,9 +13,7 @@ use std::sync::Arc;
 
 
 
-/// Allows you to create `Scope
-/// 
-/// dRefGuards`, which can send non-`'static` data to anything that requires `'static` data.
+/// Allows you to create runtime-checked scope where a non-`'static` reference can be used as if it is `'static`.
 /// 
 /// This works because the static-friendly guards prevent their parent `ScopeRef` from being dropped, meaning their data can always be accessed as if it is static. The resulting functionality is similar to lifetimes superpowers of `std::thread::scope()`, but available everywhere
 pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
@@ -71,7 +69,6 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
 	#[cfg(not(feature = "no-pin"))]
 	pub fn new_ref(self: &Pin<&mut Self>) -> ScopedRefGuard<ConnectorType> {
-		#[cfg(not(feature = "no-pin"))]
 		self.counter_notify.0.fetch_add(1, Ordering::AcqRel);
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
@@ -87,8 +84,6 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
 	#[cfg(feature = "no-pin")]
 	pub fn new_ref(&self) -> ScopedRefGuard<ConnectorType> {
-		#[cfg(not(feature = "no-pin"))]
-		self.counter_notify.0.fetch_add(1, Ordering::AcqRel);
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
 			#[cfg(feature = "runtime-none" )]
@@ -139,7 +134,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	
 }
 
-// When ScopedRef is dropped, it must wait until all ScopedRefGuards have been dropped before continuing execution
+// When `ScopedRef` is dropped, it must wait until all `ScopedRefGuards` have been dropped before continuing execution (unless a different feature is enabled)
 impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 	fn drop(&mut self) {
 		#[cfg(feature = "drop-does-block")]
@@ -151,9 +146,9 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 			#[cfg(feature = "runtime-tokio")]
 			{
 				tokio::task::block_in_place(move || {
-					Handle::current().block_on((async || {
+					Handle::current().block_on(async {
 						self.await_guards(None).await;
-					})())
+					})
 				});
 			}
 		}
@@ -161,7 +156,7 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 		{
 			if !self.has_active_guards() { panic!("Attempting to drop a `ScopedRef` while it still has active guards"); }
 		}
-		#[cfg(not(any(feature = "drop-does-block", feature = "unsafe-drop-does-panic", feature = "unsafe-drop-does-nothing")))]
-		compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"drop-does-block\", \"unsafe-drop-does-panic\", \"unsafe-drop-does-nothing\"");
+		#[cfg(feature = "unsafe-drop-does-nothing")]
+		{}
 	}
 }
