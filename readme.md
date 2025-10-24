@@ -50,7 +50,7 @@ There are only three sources of overhead, which are:
 - Dropping a guard, which is a single atomic operation plus a cross-thread notify on last guard drop
 - Dropping a ScopedRef, which sleeps until notified (or immediately continues if there's already no remaining guards)
 
-### Crate features:
+### Crate feature flags:
 
 - `"runtime-none"`: Specifies using no special runtime
 - `"runtime-tokio"`: Specifies using the tokio runtime (enabled by default)
@@ -58,6 +58,8 @@ There are only three sources of overhead, which are:
 - `"drop-does-block"`: Causes the drop function of `ScopedRef` to block until all guards have been dropped (enabled by default)
 - `"unsafe-drop-does-panic"`: Causes the drop function of `ScopedRef` to panic if there are still have guards active (this is considered unsafe because when it does panic, the unwind will essentially always deallocate data that is still being used)
 - `"unsafe-drop-does-nothing"`: Causes the drop function of `ScopedRef` to do nothing, even if there are still guards active. 
+- `"unwind-does-abort"`: Causes `ScopedRef` to abort the program if the dropped during a panic unwind. This is to ensure no danging pointers are created (enabled by default)
+- `"unsafe-ignore-unwind"`: This is the opposite of the "unwind-does-abort" feature. If this is enabled, `ScopedRef`'s drop function will not check for unwinds and will proceed as dictated by the 'drop-does-' features
 
 ### Potential problems:
 

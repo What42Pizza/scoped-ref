@@ -2,7 +2,7 @@ use crate::*;
 use std::marker::PhantomData;
 
 #[cfg(feature = "runtime-none" )]
-use crossbeam::sync::Unparker;
+use std::sync::{Mutex, Condvar};
 #[cfg(feature = "runtime-tokio")]
 use tokio::sync::Notify;
 
@@ -26,9 +26,9 @@ pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
 	
 	// stores the counter and the notify together, which allows the `Arc<Notify>` when "no-pin" and "runtime-tokio" are used together
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
-	pub(crate) counter_notify: (&'static AtomicU32, Unparker),
+	pub(crate) counter_notify: (&'static AtomicU32, &'static Mutex<()>, &'static Condvar),
 	#[cfg(all(    feature = "no-pin" , feature = "runtime-none" ))]
-	pub(crate) counter_notify: (Arc<()>, Unparker),
+	pub(crate) counter_notify: Arc<(Mutex<()>, Condvar)>,
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-tokio"))]
 	pub(crate) counter_notify: (&'static AtomicU32, &'static Notify),
 	#[cfg(all(    feature = "no-pin" , feature = "runtime-tokio"))]
@@ -52,8 +52,9 @@ impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 		4: `T` can only be dropped after all references to `T` given by this function are dropped
 		*/
 		unsafe {
-			// SAFETY (reading): a `ScopedRefGuard` can only be made with `ScopedRef::new()`, which already implements a check to make sure this has enough space to store `&'a ConnectorType::Super<'a>`
-			std::ptr::read(&self.data_ptr as *const _ as *const &'a ConnectorType::Super<'a>)
+			// SAFETY (size): a `ScopedRefGuard` can only be made with `ScopedRef::new()`, which already implements a check to make sure this has enough space to store `&'a ConnectorType::Super<'a>`
+			let data_ptr = &self.data_ptr as *const _ as *const &'a ConnectorType::Super<'a>;
+			&*data_ptr
 		}
 	}
 }
@@ -65,7 +66,12 @@ impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> {
 			let prev_count = self.counter_notify.0.fetch_sub(1, Ordering::AcqRel);
 			if prev_count == 1 {
 				#[cfg(feature = "runtime-none")]
-				self.counter_notify.1.unpark();
+				{
+					// locking the mutex is necessary to prevent sending a notification after the main ScopedRef checks the active count but before it waits on the condvar
+					let lock = self.counter_notify.1.lock().expect("failed to lock mutex while dropping data guard");
+					self.counter_notify.2.notify_all();
+					drop(lock);
+				}
 				#[cfg(feature = "runtime-tokio")]
 				self.counter_notify.1.notify_waiters();
 			}
@@ -73,8 +79,11 @@ impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> {
 		#[cfg(feature = "no-pin")]
 		{
 			#[cfg(feature = "runtime-none")]
-			if Arc::strong_count(&self.counter_notify.0) == 2 {
-				self.counter_notify.1.unpark();
+			if Arc::strong_count(&self.counter_notify) == 2 {
+				// locking the mutex is necessary to prevent sending a notification after the main ScopedRef checks the active count but before it waits on the condvar
+				let lock = self.counter_notify.0.lock().expect("failed to lock mutex while dropping data guard");
+				self.counter_notify.1.notify_all();
+				drop(lock);
 			}
 			#[cfg(feature = "runtime-tokio")]
 			if Arc::strong_count(&self.counter_notify) == 2 {
@@ -103,9 +112,9 @@ impl<ConnectorType: TypeConnector> Clone for ScopedRefGuard<ConnectorType> {
 		Self {
 			data_ptr: self.data_ptr,
 			#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
-			counter_notify: (self.counter_notify.0, self.counter_notify.1.clone()),
+			counter_notify: self.counter_notify,
 			#[cfg(all(    feature = "no-pin" , feature = "runtime-none" ))]
-			counter_notify: (self.counter_notify.0.clone(), self.counter_notify.1.clone()),
+			counter_notify: self.counter_notify.clone(),
 			#[cfg(all(not(feature = "no-pin"), feature = "runtime-tokio"))]
 			counter_notify: self.counter_notify,
 			#[cfg(all(    feature = "no-pin" , feature = "runtime-tokio"))]

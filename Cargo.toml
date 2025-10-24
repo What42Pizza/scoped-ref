@@ -11,13 +11,14 @@ categories = []
 
 [dependencies]
 tokio = { version = "1", optional = true }
-crossbeam = { version = "0.8", optional = true }
 
 [features]
-default = [ "runtime-tokio", "drop-does-block" ]
-runtime-none = [ "crossbeam" ]
+default = [ "runtime-tokio", "drop-does-block", "unwind-does-abort" ]
+runtime-none = []
 runtime-tokio = [ "tokio", "tokio/rt-multi-thread", "tokio/time", "tokio/macros", "tokio/sync" ]
 no-pin = []
 drop-does-block = []
 unsafe-drop-does-panic = []
 unsafe-drop-does-nothing = []
+unwind-does-abort = []
+unsafe-ignore-unwind = []

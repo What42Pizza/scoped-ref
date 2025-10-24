@@ -1,8 +1,8 @@
 use crate::*;
 use std::{time::Duration, marker::PhantomData};
 
-#[cfg(feature = "runtime-none" )]
-use crossbeam::sync::Parker;
+#[cfg(feature = "runtime-none")]
+use std::{sync::{Mutex, Condvar}, time::Instant};
 #[cfg(feature = "runtime-tokio")]
 use tokio::{runtime::Handle, sync::Notify};
 
@@ -22,9 +22,9 @@ pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
 	
 	// stores the counter and the notify together, which allows the `Arc<Notify>` when "no-pin" and "runtime-tokio" are used together
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
-	pub(crate) counter_notify: (AtomicU32, Parker),
+	pub(crate) counter_notify: (AtomicU32, Mutex<()>, Condvar),
 	#[cfg(all(    feature = "no-pin" , feature = "runtime-none" ))]
-	pub(crate) counter_notify: (Arc<()>, Parker),
+	pub(crate) counter_notify: Arc<(Mutex<()>, Condvar)>,
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-tokio"))]
 	pub(crate) counter_notify: (AtomicU32, Notify),
 	#[cfg(all(    feature = "no-pin" , feature = "runtime-tokio"))]
@@ -46,9 +46,9 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 			data_ptr: ConnectorType::RAW_POINTER_DEFAULT,
 			
 			#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
-			counter_notify: (AtomicU32::new(0), Parker::new()),
+			counter_notify: (AtomicU32::new(0), Mutex::new(()), Condvar::new()),
 			#[cfg(all(    feature = "no-pin" , feature = "runtime-none" ))]
-			counter_notify: (Arc::new(()), Parker::new()),
+			counter_notify: Arc::new((Mutex::new(()), Condvar::new())),
 			#[cfg(all(not(feature = "no-pin"), feature = "runtime-tokio"))]
 			counter_notify: (AtomicU32::new(0), Notify::new()),
 			#[cfg(all(    feature = "no-pin" , feature = "runtime-tokio"))]
@@ -58,7 +58,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		};
 		let data_ptr: &'a ConnectorType::Super<'a> = data.into();
 		unsafe {
-			debug_assert!(std::mem::size_of::<ConnectorType::RawPointerStorage>() >= std::mem::size_of::<&'a ConnectorType::Super<'a>>(), "Undefined behaviour prevented: not enough storage for the given reference. In the call to the `make_connector_type!()` macro, please edit (or add) the size needed");
+			assert!(std::mem::size_of::<ConnectorType::RawPointerStorage>() >= std::mem::size_of::<&'a ConnectorType::Super<'a>>(), "Undefined behaviour prevented: not enough storage for the given reference. In the call to the `make_connector_type!()` macro, please edit (or add) the size needed");
 			*(&mut output.data_ptr as *mut _ as *mut &'a ConnectorType::Super<'a>) = data_ptr;
 		}
 		output
@@ -73,7 +73,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
 			#[cfg(feature = "runtime-none" )]
-			counter_notify: (unsafe {&*(&self.counter_notify.0 as *const _)}, self.counter_notify.1.unparker().clone()),
+			counter_notify: (unsafe {&*(&self.counter_notify.0 as *const _)}, unsafe {&*(&self.counter_notify.1 as *const _)}, unsafe {&*(&self.counter_notify.2 as *const _)}),
 			#[cfg(feature = "runtime-tokio")]
 			counter_notify: (unsafe {&*(&self.counter_notify.0 as *const _)}, unsafe {&*(&self.counter_notify.1 as *const _)}),
 			phantom: PhantomData,
@@ -86,9 +86,6 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	pub fn new_ref(&self) -> ScopedRefGuard<ConnectorType> {
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
-			#[cfg(feature = "runtime-none" )]
-			counter_notify: (self.counter_notify.0.clone(), self.counter_notify.1.unparker().clone()),
-			#[cfg(feature = "runtime-tokio")]
 			counter_notify: self.counter_notify.clone(),
 			phantom: PhantomData,
 		}
@@ -97,11 +94,32 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	/// Blocks until all guards have been dropped (is async on async runtimes)
 	#[cfg(feature = "runtime-none")]
 	pub fn await_guards(&self, timeout: Option<Duration>) {
-		if !self.has_active_guards() { return; }
+		#[cfg(not(feature = "no-pin"))]
+		let (mutex, condvar) = (&self.counter_notify.1, &self.counter_notify.2);
+		#[cfg(feature = "no-pin")]
+		let (mutex, condvar) = (&self.counter_notify.0, &self.counter_notify.1);
 		if let Some(timeout) = timeout {
-			self.counter_notify.1.park_timeout(timeout);
+			
+			let mut guard = mutex.lock().expect("failed to start waiting for data guards to drop");
+			if !self.has_active_guards() { return; } // doing this here ensures that a notification can't be sent after this check but before the `condvar.wait()`
+			let end = Instant::now() + timeout;
+			(guard, _) = condvar.wait_timeout(guard, timeout).expect("failed to wait for data guards to drop");
+			if !self.has_active_guards() { return; }
+			loop {
+				let now = Instant::now();
+				if now > end { return; }
+				(guard, _) = condvar.wait_timeout(guard, end - now).expect("failed to wait for data guards to drop");
+				if !self.has_active_guards() { return; }
+			}
+			
 		} else {
-			self.counter_notify.1.park();
+			
+			let mut guard = mutex.lock().expect("failed to start waiting for data guards to drop");
+			loop {
+				if !self.has_active_guards() { return; }
+				guard = condvar.wait(guard).expect("failed to wait for data guards to drop");
+			}
+			
 		}
 	}
 	/// Blocks until all guards have been dropped (is async on async runtimes)
@@ -125,7 +143,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
 		{ self.counter_notify.0.load(Ordering::Acquire) > 0}
 		#[cfg(all(    feature = "no-pin" , feature = "runtime-none" ))]
-		{ Arc::strong_count(&self.counter_notify.0) > 1 }
+		{ Arc::strong_count(&self.counter_notify) > 1 }
 		#[cfg(all(not(feature = "no-pin"), feature = "runtime-tokio"))]
 		{ self.counter_notify.0.load(Ordering::Acquire) > 0}
 		#[cfg(all(    feature = "no-pin" , feature = "runtime-tokio"))]
@@ -137,6 +155,11 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 // When `ScopedRef` is dropped, it must wait until all `ScopedRefGuards` have been dropped before continuing execution (unless a different feature is enabled)
 impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
 	fn drop(&mut self) {
+		#[cfg(feature = "unwind-does-abort")]
+		if std::thread::panicking() {
+			eprintln!("Program must be aborted due to a `ScopedRef` being dropped on unwind.");
+			std::process::abort();
+		}
 		#[cfg(feature = "drop-does-block")]
 		{
 			#[cfg(feature = "runtime-none")]

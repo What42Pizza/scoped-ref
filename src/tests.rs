@@ -5,14 +5,14 @@ use crate::*;
 
 /*
 To test all situations, run:
-cargo test --no-default-features --features drop-does-block,runtime-none
-cargo test --no-default-features --features drop-does-block,runtime-tokio
-cargo test --no-default-features --features drop-does-block,runtime-none,no-pin
-cargo test --no-default-features --features drop-does-block,runtime-tokio,no-pin
-cargo test --release --no-default-features --features drop-does-block,runtime-none
-cargo test --release --no-default-features --features drop-does-block,runtime-tokio
-cargo test --release --no-default-features --features drop-does-block,runtime-none,no-pin
-cargo test --release --no-default-features --features drop-does-block,runtime-tokio,no-pin
+cargo test --no-default-features --features drop-does-block,unwind-does-abort,runtime-none
+cargo test --no-default-features --features drop-does-block,unwind-does-abort,runtime-tokio
+cargo test --no-default-features --features drop-does-block,unwind-does-abort,runtime-none,no-pin
+cargo test --no-default-features --features drop-does-block,unwind-does-abort,runtime-tokio,no-pin
+cargo test --release --no-default-features --features drop-does-block,unwind-does-abort,runtime-none
+cargo test --release --no-default-features --features drop-does-block,unwind-does-abort,runtime-tokio
+cargo test --release --no-default-features --features drop-does-block,unwind-does-abort,runtime-none,no-pin
+cargo test --release --no-default-features --features drop-does-block,unwind-does-abort,runtime-tokio,no-pin
 */
 
 
@@ -59,6 +59,8 @@ async fn basic_test() {
 	
 	println!("All threads finished!");
 }
+
+
 
 #[cfg(feature = "runtime-none")]
 #[test]
@@ -109,6 +111,8 @@ async fn advanced_type_test() {
 	println!("All threads finished!");
 }
 
+
+
 #[cfg(feature = "runtime-none")]
 #[test]
 fn test_macro() {
@@ -133,6 +137,8 @@ async fn test_macro() {
 	let _: <MyType as TypeConnector>::RawPointerStorage = <MyType as TypeConnector>::RAW_POINTER_DEFAULT;
 	
 }
+
+
 
 #[cfg(feature = "runtime-none")]
 #[test]
@@ -162,7 +168,7 @@ fn test_std_traits() {
 	#[cfg(not(feature = "no-pin"))]
 	assert_eq!(scoped_data.counter_notify.0.load(Ordering::Acquire), 2);
 	#[cfg(feature = "no-pin")]
-	assert_eq!(Arc::strong_count(&scoped_data.counter_notify.0), 3);
+	assert_eq!(Arc::strong_count(&scoped_data.counter_notify), 3);
 	drop(data_ref);
 	drop(data_ref_2);
 	

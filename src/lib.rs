@@ -54,10 +54,22 @@
 //! - **The tokio runtime** if the `"runtime-tokio"` feature is enabled
 //! 
 //! If support for more runtimes is needed, just open an issue and adding it should be fairly simple
+//! 
+//! ## Feature flags:
+//! 
+//! - `"runtime-none"`: Specifies using no special runtime
+//! - `"runtime-tokio"`: Specifies using the tokio runtime (enabled by default)
+//! - `"no-pin"`: Allows more flexibility (no pinning required), but adds heap allocation
+//! - `"drop-does-block"`: Causes the drop function of `ScopedRef` to block until all guards have been dropped (enabled by default)
+//! - `"unsafe-drop-does-panic"`: Causes the drop function of `ScopedRef` to panic if there are still have guards active (this is considered unsafe because when it does panic, the unwind will essentially always deallocate data that is still being used)
+//! - `"unsafe-drop-does-nothing"`: Causes the drop function of `ScopedRef` to do nothing, even if there are still guards active. 
+//! - `"drop-unwind-does-abort"`: Causes `ScopedRef` to abort the program if the dropped during a panic unwind. This is to ensure no danging pointers are created (enabled by default)
+//! - `"unsafe-ignore-unwind"`: This is the opposite of the "unwind-does-abort" feature. If this is enabled, `ScopedRef`'s drop function will not check for unwinds and will proceed as dictated by the 'drop-does-' features
 
 
 
 #![warn(missing_docs)]
+#![forbid(clippy::unwrap_used)]
 
 
 
@@ -72,8 +84,6 @@ pub mod type_connector;
 pub use type_connector::*;
 mod tests;
 
-#[cfg(feature = "runtime-none")]
-pub use crossbeam;
 #[cfg(feature = "runtime-tokio")]
 pub use tokio;
 
@@ -85,8 +95,8 @@ pub use tokio;
 compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"runtime-none\", \"runtime-tokio\"");
 #[cfg(not(any(feature = "drop-does-block", feature = "unsafe-drop-does-panic", feature = "unsafe-drop-does-nothing")))]
 compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"drop-does-block\", \"unsafe-drop-does-panic\", \"unsafe-drop-does-nothing\"");
+#[cfg(not(any(feature = "unwind-does-abort", feature = "unsafe-ignore-unwind")))]
+compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"unwind-does-abort\", \"unsafe-ignore-unwind\"");
 
 #[cfg(all(feature = "tokio", not(feature = "runtime-tokio")))]
 compile_error!("You must not use the \"tokio\" feature directly, use \"runtime-tokio\" instead");
-#[cfg(all(feature = "crossbeam", not(feature = "runtime-none")))]
-compile_error!("You must not use the \"crossbeam\" feature directly, use \"runtime-none\" instead");
