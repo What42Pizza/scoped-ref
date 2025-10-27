@@ -24,9 +24,7 @@ fn basic_test() {
 	let data = String::from("Test Data");
 	{
 		make_type_connector!(RefString *1 = <'a> String);
-		let scoped_data = ScopedRef::<RefString>::new(&data);
-		#[cfg(not(feature = "no-pin"))]
-		let scoped_data = std::pin::pin!(scoped_data);
+		make_scoped_ref!(scoped_data = (&data) as RefString);
 		
 		let data_ref = scoped_data.new_ref();
 		thread::spawn(move || {
@@ -45,9 +43,7 @@ async fn basic_test() {
 	let data = String::from("Test Data");
 	{
 		make_type_connector!(RefString *1 = <'a> String);
-		let scoped_data = ScopedRef::<RefString>::new(&data);
-		#[cfg(not(feature = "no-pin"))]
-		let scoped_data = std::pin::pin!(scoped_data);
+		make_scoped_ref!(scoped_data = (&data) as RefString);
 		
 		let data_ref = scoped_data.new_ref();
 		thread::spawn(move || {
@@ -74,9 +70,7 @@ fn advanced_type_test() {
 	};
 	{
 		make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
-		let scoped_data = ScopedRef::<RefAdvancedType>::new(&data);
-		#[cfg(not(feature = "no-pin"))]
-		let scoped_data = std::pin::pin!(scoped_data);
+		make_scoped_ref!(scoped_data = (&data) as RefAdvancedType);
 		
 		let data_ref = scoped_data.new_ref();
 		std::thread::spawn(move || {
@@ -98,9 +92,7 @@ async fn advanced_type_test() {
 	};
 	{
 		make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
-		let scoped_data = ScopedRef::<RefAdvancedType>::new(&data);
-		#[cfg(not(feature = "no-pin"))]
-		let scoped_data = std::pin::pin!(scoped_data);
+		make_scoped_ref!(scoped_data = (&data) as RefAdvancedType);
 		
 		let data_ref = scoped_data.new_ref();
 		std::thread::spawn(move || {
@@ -150,17 +142,13 @@ fn test_std_traits() {
 	
 	make_type_connector!(SliceU8 = <'a> [u8]);
 	let data = vec!(1, 2, 3);
-	let scoped_data = ScopedRef::<SliceU8>::new(&*data);
-	#[cfg(not(feature = "no-pin"))]
-	let scoped_data = std::pin::pin!(scoped_data);
+	make_scoped_ref!(scoped_data = (&*data) as SliceU8);
 	let data_ref = scoped_data.new_ref();
 	assert_eq!(format!("{data_ref:?}"), String::from("[1, 2, 3]"));
 	
 	make_type_connector!(U8 = <'a> u8);
 	let data = 123;
-	let scoped_data = ScopedRef::<U8>::new(&data);
-	#[cfg(not(feature = "no-pin"))]
-	let scoped_data = std::pin::pin!(scoped_data);
+	make_scoped_ref!(scoped_data = (&data) as U8);
 	let data_ref = scoped_data.new_ref();
 	assert_eq!(format!("{data_ref}"), String::from("123"));
 	
@@ -183,17 +171,13 @@ async fn test_std_traits() {
 	
 	make_type_connector!(SliceU8 = <'a> [u8]);
 	let data = vec!(1, 2, 3);
-	let scoped_data = ScopedRef::<SliceU8>::new(&*data);
-	#[cfg(not(feature = "no-pin"))]
-	let scoped_data = std::pin::pin!(scoped_data);
+	make_scoped_ref!(scoped_data = (&*data) as SliceU8);
 	let data_ref = scoped_data.new_ref();
 	assert_eq!(format!("{data_ref:?}"), String::from("[1, 2, 3]"));
 	
 	make_type_connector!(U8 = <'a> u8);
 	let data = 123;
-	let scoped_data = ScopedRef::<U8>::new(&data);
-	#[cfg(not(feature = "no-pin"))]
-	let scoped_data = std::pin::pin!(scoped_data);
+	make_scoped_ref!(scoped_data = (&data) as U8);
 	let data_ref = scoped_data.new_ref();
 	assert_eq!(format!("{data_ref}"), String::from("123"));
 	

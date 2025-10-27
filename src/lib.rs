@@ -17,9 +17,7 @@
 //!     // Create a type to represent our data
 //!     make_type_connector!(SliceU8 = <'a> [u8]);
 //!     // Create a scope for the data. This can be used to safely access the inner data as if it is `'static`
-//!     let scoped_data = ScopedRef::<SliceU8>::new(&*my_huge_data);
-//!     // Pin the scope (needed unless the "no-pin" feature is enabled)
-//!     let scoped_data = std::pin::pin!(scoped_data);
+//!     make_scoped_ref!(scoped_data = (&*my_huge_data) as SliceU8);
 //!     
 //!     // Create a `ScopedRefGuard` that can be passed to anything that takes `'static` data
 //!     let data_ref: ScopedRefGuard<SliceU8> = scoped_data.new_ref();

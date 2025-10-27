@@ -13,6 +13,24 @@ use std::sync::Arc;
 
 
 
+/// Creates a new [ScopedRef] and assigns it to a variable. This uses the format `make_scoped_ref!(scope_var_name = reference_to_scope => ConnectorType);`
+#[macro_export]
+macro_rules! make_scoped_ref {
+	($scope:ident = ($input:expr) as $connector:ty) => {
+		#[cfg(not(feature = "no-pin"))]
+		let $scope = &mut unsafe {
+			let $scope = $crate::ScopedRef::<$connector>::new($input);
+			std::pin::pin!($scope)
+		};
+		#[cfg(feature = "no-pin")]
+		let $scope = &mut unsafe {
+			$crate::ScopedRef::<$connector>::new($input)
+		};
+	};
+}
+
+
+
 /// Allows you to create runtime-checked scope where a non-`'static` reference can be used as if it is `'static`.
 /// 
 /// This works because the static-friendly guards prevent their parent `ScopeRef` from being dropped, meaning their data can always be accessed as if it is static. The resulting functionality is similar to lifetimes superpowers of `std::thread::scope()`, but available everywhere
@@ -36,8 +54,14 @@ pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
 
 impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 	
-	/// Creates a new `ScopedRef`. NOTE: you must `pin!()` the returned value for it to be usable! (unless the "no-pin" feature is enabled)
-	pub fn new(data: impl Into<&'a ConnectorType::Super<'a>>) -> Self where &'a ConnectorType::Super<'a>: Copy {
+	/// NOTE: `ScopedRef` is meant to be created using [make_scoped_ref].
+	/// 
+	/// Creates a new `ScopedRef` with a given reference
+	/// 
+	/// # Safety
+	/// 
+	/// This function is considered unsafe because it is possible to create dangling pointers with this if you 1: create a `ScopedRef` with this, 2: create a `ScopedRefGuard` with the scoped ref, 3: use `std::mem::forget()` to drop the `ScopedRef`, and 4: drop the data that the `ScopedRef` (and therefore the `ScopedRefGuard`) referenced. The third step actually only possible with the "no-pin" feature enabled, but it's easier to just always use the macro anyways
+	pub unsafe fn new(data: impl Into<&'a ConnectorType::Super<'a>>) -> Self where &'a ConnectorType::Super<'a>: Copy {
 		#[cfg(all(debug_assertions, feature = "runtime-tokio"))]
 		{
 			Handle::current(); // check whether this is being called within a valid tokio runtime (only checks in debug mode, exists bc the drop fn already needs the handle and seeing the panic in `new()` is probably better than in the drop)

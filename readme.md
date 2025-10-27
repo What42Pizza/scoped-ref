@@ -10,8 +10,7 @@ let my_huge_data: Vec<u8> = get_huge_data();
 {
 	// Step 1: create the scope
 	make_type_connector!(SliceU8 = <'a> [u8]);
-	let scoped_data = ScopedRef::<SliceU8>::new(&*my_huge_data);
-	let scoped_data = std::pin::pin!(scoped_data); // needed unless the "no-pin" feature is enabled
+	make_scoped_ref!(scoped_ref = (&*my_huge_data) as Sliceu8);
 	
 	// Step 2: use the scope
 	let data_ref: ScopedRefGuard<SliceU8> = scoped_data.new_ref();

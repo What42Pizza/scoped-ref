@@ -2,14 +2,14 @@
 //! 
 //! To get around this limitation, `ScopedRef` and `ScopedRefGuard` use a marker type to just represent the actual type being referenced. This is how that works:
 //! 
-//! - 1: `ScopedRef` and `ScopedRefGuard` both take any type that implements the [TypeConnector](TypeConnector) trait
+//! - 1: `ScopedRef` and `ScopedRefGuard` both take any type that implements the [TypeConnector] trait
 //! - 2: The `TypeConnector` trait has an associated type that defines the actual type being referenced
 //! - 3: When `ScopedRef` or `ScopedRefGuard` need to access the actual type being referenced, they just use `TypeConnector::Super`
-//!   - For example, just look at [ScopedRefGuard::inner()](ScopedRefGuard::inner()), which has the signature `fn inner(&self) -> &ConnectorType::Super` (note: `TypeConnector` is the name of the trait, and `ConnectorType` is the name of the generic that implements `TypeConnector`)
+//!   - For example, just look at [ScopedRefGuard::inner()], which has the signature `fn inner(&self) -> &ConnectorType::Super` (note: `TypeConnector` is the name of the trait, and `ConnectorType` is the name of the generic that implements `TypeConnector`)
 
 
 
-/// A type meant solely for enforcing type safety. To create this type, please go to [make_type_connector](make_type_connector!())
+/// A type meant solely for enforcing type safety. To create this type, please go to [make_scoped_ref]
 pub trait TypeConnector: 'static {
 	/// This specifies the type that this `TypeConnector` represents
 	type Super<'a>: ?Sized;
@@ -21,7 +21,7 @@ pub trait TypeConnector: 'static {
 
 
 
-/// This is a utility for creating structs that implement [TypeConnector](TypeConnector)
+/// This is a utility for creating structs that implement [TypeConnector]
 /// 
 /// ### What is `TypeConnector` and why does it exist?
 /// 
@@ -35,7 +35,7 @@ pub trait TypeConnector: 'static {
 /// ```
 /// 
 /// There are three four inputs (with one being optional), which are:
-/// - ConnectorTypeName: This will be the name of the helper struct that implements [TypeConnector](TypeConnector)
+/// - ConnectorTypeName: This will be the name of the helper struct that implements [TypeConnector]
 /// - reference length (the `*1`): This will be the length (in usize-s) of the reference to `TypeToBeReferenced`. For something like `&MyType`, the value should be *1, and for fat pointers (something like `&[MyType]`), the value should be *2
 ///   - WARNING: Setting this value too low is UB, and the size of references in rust is subject to change. The value given here likely will never need to be anything larger than 2, but to be safe, the default value is 4
 /// - lifetime (the `<'a>`): This is for defining lifetimes within `TypeToBeReferenced`
