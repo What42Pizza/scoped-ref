@@ -4,6 +4,8 @@
 //! 
 //! ### Example usage:
 //! 
+//! This example is non-async, but this crate does support async/await by default
+//! 
 //! ```
 //! use ::scoped_ref::*;
 //! fn do_processing(my_huge_data: &[u8]) {}
@@ -89,12 +91,45 @@ pub use tokio;
 
 // ensure features are used correctly:
 
-#[cfg(not(any(feature = "runtime-none", feature = "runtime-tokio")))]
-compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"runtime-none\", \"runtime-tokio\"");
-#[cfg(not(any(feature = "drop-does-block", feature = "unsafe-drop-does-panic", feature = "unsafe-drop-does-nothing")))]
-compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"drop-does-block\", \"unsafe-drop-does-panic\", \"unsafe-drop-does-nothing\"");
-#[cfg(not(any(feature = "unwind-does-abort", feature = "unsafe-ignore-unwind")))]
-compile_error!("At least one of these features must be enabled for the scoped-ref crate: \"unwind-does-abort\", \"unsafe-ignore-unwind\"");
-
-#[cfg(all(feature = "tokio", not(feature = "runtime-tokio")))]
-compile_error!("You must not use the \"tokio\" feature directly, use \"runtime-tokio\" instead");
+#[allow(unused_mut)]
+const _: () = {
+	
+	let mut runtime_count = 0;
+	#[cfg(feature = "runtime-none")]
+	{ runtime_count += 1; }
+	#[cfg(feature = "runtime-tokio")]
+	{ runtime_count += 1; }
+	match runtime_count {
+		0 => panic!("At least one of these features must be enabled in the `scoped-ref` crate: \"runtime-none\" or \"runtime-tokio\""),
+		1 => {}
+		_ => panic!("Only one of these features may be enabled in the `scoped-ref` crate: \"runtime-none\" or \"runtime-tokio\" (be sure to check default features)"),
+	}
+	
+	let mut drop_count = 0;
+	#[cfg(feature = "drop-does-block")]
+	{ drop_count += 1; }
+	#[cfg(feature = "unsafe-drop-does-panic")]
+	{ drop_count += 1; }
+	#[cfg(feature = "unsafe-drop-does-nothing")]
+	{ drop_count += 1; }
+	match drop_count {
+		0 => panic!("At least one of these features must be enabled in the `scoped-ref` crate: \"drop-does-block\", \"unsafe-drop-does-panic\", or \"unsafe-drop-does-nothing\""),
+		1 => {}
+		_ => panic!("Only one of these features may be enabled in the `scoped-ref` crate: \"drop-does-block\", \"unsafe-drop-does-panic\", or \"unsafe-drop-does-nothing\" (be sure to check default features)"),
+	}
+	
+	let mut unwind_count = 0;
+	#[cfg(feature = "unwind-does-abort")]
+	{ unwind_count += 1; }
+	#[cfg(feature = "unsafe-ignore-unwind")]
+	{ unwind_count += 1; }
+	match unwind_count {
+		0 => panic!("At least one of these features must be enabled in the `scoped-ref` crate: \"unwind-does-abort\" or \"unsafe-ignore-unwind\""),
+		1 => {}
+		_ => panic!("Only one of these features may be enabled in the `scoped-ref` crate: \"unwind-does-abort\" or \"unsafe-ignore-unwind\" (be sure to check default features)"),
+	}
+	
+	#[cfg(all(feature = "tokio", not(feature = "runtime-tokio")))]
+	panic!("The \"tokio\" feature of the `scoped-ref` crate must not be used directly, use \"runtime-tokio\" instead");
+	
+};
