@@ -22,7 +22,7 @@ use std::sync::Arc;
 /// Also, this type only implements `Send` and/or `Sync` when the underlying reference implements `Send` and/or `Sync`
 pub struct ScopedRefGuard<ConnectorType: TypeConnector> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	
-	pub(crate) data_ptr: [u8; std::mem::size_of::<&ConnectorType::Super<'static>>()],//ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
+	pub(crate) data_ptr: [u8; std::mem::size_of::<&ConnectorType::Super<'static>>()],
 	
 	// stores the counter and the notify together, which allows the `Arc<Notify>` when "no-pin" and "runtime-tokio" are used together
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
@@ -52,9 +52,8 @@ impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> where [(); std:
 		4: `T` can only be dropped after all references to `T` given by this function are dropped
 		*/
 		unsafe {
-			// SAFETY (size): a `ScopedRefGuard` can only be made with `ScopedRef::new()`, which already implements a check to make sure this has enough space to store `&'a ConnectorType::Super<'a>`
-			let data_ptr = &self.data_ptr as *const _ as *const &'a ConnectorType::Super<'a>;
-			&*data_ptr
+			// SAFETY (size): the type for `data_ptr` ensures that it is the same size as `&ConnectorType::Super`
+			&*(&self.data_ptr as *const _ as *const &'a ConnectorType::Super<'a>)
 		}
 	}
 }

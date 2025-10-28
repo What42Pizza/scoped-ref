@@ -36,7 +36,7 @@ macro_rules! make_scoped_ref {
 /// This works because the static-friendly guards prevent their parent `ScopeRef` from being dropped, meaning their data can always be accessed as if it is static. The resulting functionality is similar to lifetimes superpowers of `std::thread::scope()`, but available everywhere
 pub struct ScopedRef<'a, ConnectorType: TypeConnector> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	
-	pub(crate) data_ptr: [u8; std::mem::size_of::<&ConnectorType::Super<'static>>()],//ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
+	pub(crate) data_ptr: [u8; std::mem::size_of::<&ConnectorType::Super<'static>>()],
 	
 	// stores the counter and the notify together, which allows the `Arc<Notify>` when "no-pin" and "runtime-tokio" are used together
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
@@ -54,7 +54,7 @@ pub struct ScopedRef<'a, ConnectorType: TypeConnector> where [(); std::mem::size
 
 impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	
-	/// NOTE: `ScopedRef` is meant to be created using [make_scoped_ref].
+	/// NOTE: `ScopedRef` is meant to be created using the [make_scoped_ref] macro.
 	/// 
 	/// Creates a new `ScopedRef` with a given reference
 	/// 
@@ -82,7 +82,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 		};
 		let data_ptr: &'a ConnectorType::Super<'a> = data.into();
 		unsafe {
-			// SAFETY: this should be safe because the `data_ptr` field is set to the same size as `&ConnectorType::Super`
+			// SAFETY: the type for `data_ptr` ensures that it is the same size as `&ConnectorType::Super`
 			*(&mut output.data_ptr as *mut _ as *mut &'a ConnectorType::Super<'a>) = data_ptr;
 		}
 		output

@@ -113,8 +113,6 @@ fn test_macro() {
 	
 	let inner_data = 0u8;
 	let _: <MyType as TypeConnector>::Super<'_> = vec!(&inner_data);
-	let _: <MyType as TypeConnector>::RawPointerStorage = [0; 5];
-	let _: <MyType as TypeConnector>::RawPointerStorage = <MyType as TypeConnector>::RAW_POINTER_DEFAULT;
 	
 }
 #[cfg(feature = "runtime-tokio")]

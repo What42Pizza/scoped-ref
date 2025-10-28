@@ -9,7 +9,7 @@
 
 
 
-/// A type meant solely for enforcing type safety. To create this type, please go to [make_scoped_ref]
+/// A type meant solely for enforcing type safety. To create this type, the [make_scoped_ref] macro is recommended
 pub trait TypeConnector: 'static {
 	/// This specifies the type that this `TypeConnector` represents, minus the leading `&` (so if you want to represent something like `&&u8`, this type should be `&u8`)
 	type Super<'a>: ?Sized;
@@ -26,40 +26,36 @@ pub trait TypeConnector: 'static {
 /// ### Syntax:
 /// 
 /// ```ignore
-/// make_type_connector!(ConnectorTypeName *1 = <'a> TypeToBeReferenced);
-/// make_type_connector!(ConnectorTypeName = <'a> TypeToBeReferenced); // same as above but with `*4`
+/// make_type_connector!(ConnectorTypeName = <'a> TypeToBeReferenced);
 /// ```
 /// 
-/// There are three four inputs (with one being optional), which are:
+/// There are three inputs, which are:
 /// - ConnectorTypeName: This will be the name of the helper struct that implements [TypeConnector]
-/// - reference length (the `*1`): This will be the length (in usize-s) of the reference to `TypeToBeReferenced`. For something like `&MyType`, the value should be *1, and for fat pointers (something like `&[MyType]`), the value should be *2
-///   - WARNING: Setting this value too low is UB, and the size of references in rust is subject to change. The value given here likely will never need to be anything larger than 2, but to be safe, the default value is 4
 /// - lifetime (the `<'a>`): This is for defining lifetimes within `TypeToBeReferenced`
-/// - TypeToBeReferenced: This is simple the type that you want to feed to `ScopedRef::new()`, but minus the front `&`
+/// - TypeToBeReferenced: This is simple the type that you want to feed to `ScopedRef::new()`, but minus the leading `&`
 /// 
 /// ### Examples:
 /// 
 /// ```ignore
-/// // Note: none of these need to specify *1 or *2, it's just for the example and you should probably leave it blank
 /// 
 /// // basic usage
-/// make_type_connector!(RefCustomType *1 = <'a> CustomType);
+/// make_type_connector!(RefCustomType = <'a> CustomType);
 /// let scoped_data = ScopedRef::<RefCustomType>::new(&CustomType {..});
 /// 
-/// // referencing a fat pointer (slice)
-/// make_type_connector!(RefCustomTypeSlice *2 = <'a> [CustomType]);
+/// // referencing a slice
+/// make_type_connector!(RefCustomTypeSlice = <'a> [CustomType]);
 /// let scoped_data = ScopedRef::<RefCustomTypeSlice>::new(&[CustomType {..}]);
 /// 
-/// // referencing a fat pointer (str)
-/// make_type_connector!(RefStr *2 = <'a> str);
+/// // referencing a str
+/// make_type_connector!(RefStr = <'a> str);
 /// let scoped_data = ScopedRef::<RefStr>::new("example");
 /// 
 /// // referencing a reference
-/// make_type_connector!(RefRefCustomType *1 = <'a> &'a CustomType);
+/// make_type_connector!(RefRefCustomType = <'a> &'a CustomType);
 /// let scoped_data = ScopedRef::<RefRefCustomType>::new(&&CustomType {..});
 /// 
 /// // referencing a type with inner references
-/// make_type_connector!(RefAdvancedTypeRefU8 *1 = <'a> AdvancedType<&'a u8>);
+/// make_type_connector!(RefAdvancedTypeRefU8 = <'a> AdvancedType<&'a u8>);
 /// let scoped_data = ScopedRef::<RefAdvancedTypeRefU8>::new(&AdvancedType {&0});
 /// 
 /// // and of course, you can (and probably should) leave the 'reference length' blank
