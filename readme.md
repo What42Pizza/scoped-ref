@@ -60,7 +60,7 @@ There are only three sources of overhead, which are:
 - `"unwind-does-abort"` *: Causes `ScopedRef` to abort the program if dropped during a panic unwind. This is to ensure no danging pointers are created
 - `"unsafe-ignore-unwind"`: This is the opposite of the "unwind-does-abort" feature. If it is enabled, `ScopedRef`'s drop function will not check for unwinds and will proceed as dictated by the 'drop-does-' features
 
-* = enabled by default
+'*' = enabled by default
 
 ### Potential problems:
 

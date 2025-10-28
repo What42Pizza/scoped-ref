@@ -11,11 +11,11 @@
 
 /// A type meant solely for enforcing type safety. To create this type, please go to [make_scoped_ref]
 pub trait TypeConnector: 'static {
-	/// This specifies the type that this `TypeConnector` represents
+	/// This specifies the type that this `TypeConnector` represents, minus the leading `&` (so if you want to represent something like `&&u8`, this type should be `&u8`)
 	type Super<'a>: ?Sized;
-	/// This specifies how the reference passed to `ScopedRef::new()` is stored internally. It must be big enough for the entire reference!
+	/// This specifies how the reference passed to `ScopedRef::new()` is stored internally. It must be big enough to fit the entire reference!
 	type RawPointerStorage: Copy;
-	/// This is just the default value that is held before the pointer is copied in
+	/// This is just the default value for `Self::RawPointerStorage` before the actual pointer is copied in
 	const RAW_POINTER_DEFAULT: Self::RawPointerStorage;
 }
 
@@ -25,7 +25,7 @@ pub trait TypeConnector: 'static {
 /// 
 /// ### What is `TypeConnector` and why does it exist?
 /// 
-/// The `ScopedRef` and `ScopedRefGuard` structs need to share a type to enforce type safety, but putting something like `&&u8` would force `ScopedRefGuard` to be non-`'static`. That defeats the entire point of this crate, so instead, `ScopedRef` and `ScopedRefGuard` share a type that represents the actual shared type.
+/// The `ScopedRef` and `ScopedRefGuard` structs need to share a generic type input so that type safety can be enforced, but using something like `&&u8` would cause `ScopedRefGuard` to be non-`'static`. That defeats the entire point of this crate, so instead, `ScopedRef` and `ScopedRefGuard` share a type that just represents the actual shared type.
 /// 
 /// ### Syntax:
 /// 
