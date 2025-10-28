@@ -13,10 +13,6 @@
 pub trait TypeConnector: 'static {
 	/// This specifies the type that this `TypeConnector` represents, minus the leading `&` (so if you want to represent something like `&&u8`, this type should be `&u8`)
 	type Super<'a>: ?Sized;
-	/// This specifies how the reference passed to `ScopedRef::new()` is stored internally. It must be big enough to fit the entire reference!
-	type RawPointerStorage: Copy;
-	/// This is just the default value for `Self::RawPointerStorage` before the actual pointer is copied in
-	const RAW_POINTER_DEFAULT: Self::RawPointerStorage;
 }
 
 
@@ -74,16 +70,11 @@ pub trait TypeConnector: 'static {
 #[macro_export]
 macro_rules! make_type_connector {
 	($name:ident = <$lifetime:tt> $type:ty) => {
-		make_type_connector!($name *4 = <$lifetime> $type);
-	};
-	($name:ident *$storage_count:tt = <$lifetime:tt> $type:ty) => {
 		
 		struct $name;
 		
 		impl TypeConnector for $name {
 			type Super<$lifetime> = $type;
-			type RawPointerStorage = [usize; $storage_count];
-			const RAW_POINTER_DEFAULT: Self::RawPointerStorage = [0; $storage_count];
 		}
 		
 	};

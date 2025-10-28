@@ -23,7 +23,7 @@ fn basic_test() {
 	use std::{thread, time::Duration};
 	let data = String::from("Test Data");
 	{
-		make_type_connector!(RefString *1 = <'a> String);
+		make_type_connector!(RefString = <'a> String);
 		make_scoped_ref!(scoped_data = (&data) as RefString);
 		
 		let data_ref = scoped_data.new_ref();
@@ -42,7 +42,7 @@ async fn basic_test() {
 	use std::{thread, time::Duration};
 	let data = String::from("Test Data");
 	{
-		make_type_connector!(RefString *1 = <'a> String);
+		make_type_connector!(RefString = <'a> String);
 		make_scoped_ref!(scoped_data = (&data) as RefString);
 		
 		let data_ref = scoped_data.new_ref();
@@ -69,7 +69,7 @@ fn advanced_type_test() {
 		inner: &inner,
 	};
 	{
-		make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
+		make_type_connector!(RefAdvancedType = <'a> AdvancedType<'a>);
 		make_scoped_ref!(scoped_data = (&data) as RefAdvancedType);
 		
 		let data_ref = scoped_data.new_ref();
@@ -91,7 +91,7 @@ async fn advanced_type_test() {
 		inner: &inner,
 	};
 	{
-		make_type_connector!(RefAdvancedType *1 = <'a> AdvancedType<'a>);
+		make_type_connector!(RefAdvancedType = <'a> AdvancedType<'a>);
 		make_scoped_ref!(scoped_data = (&data) as RefAdvancedType);
 		
 		let data_ref = scoped_data.new_ref();
@@ -121,12 +121,10 @@ fn test_macro() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_macro() {
 	
-	make_type_connector!(MyType *5 = <'a> Vec<&'a u8>);
+	make_type_connector!(MyType = <'a> Vec<&'a u8>);
 	
 	let inner_data = 0u8;
 	let _: <MyType as TypeConnector>::Super<'_> = vec!(&inner_data);
-	let _: <MyType as TypeConnector>::RawPointerStorage = [0; 5];
-	let _: <MyType as TypeConnector>::RawPointerStorage = <MyType as TypeConnector>::RAW_POINTER_DEFAULT;
 	
 }
 

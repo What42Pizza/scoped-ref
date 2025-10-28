@@ -20,9 +20,9 @@ use std::sync::Arc;
 /// A `ScopedRefGuard` can only be dropped once all references to it are dropped, and a `ScopedRef` can only be dropped once all `ScopedRefGuard`s have been dropped, and the underlying data `T` can only be dropped once the `ScopedRef` referencing it has been dropped
 /// 
 /// Also, this type only implements `Send` and/or `Sync` when the underlying reference implements `Send` and/or `Sync`
-pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
+pub struct ScopedRefGuard<ConnectorType: TypeConnector> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	
-	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
+	pub(crate) data_ptr: [u8; std::mem::size_of::<&ConnectorType::Super<'static>>()],//ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
 	
 	// stores the counter and the notify together, which allows the `Arc<Notify>` when "no-pin" and "runtime-tokio" are used together
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
@@ -38,10 +38,10 @@ pub struct ScopedRefGuard<ConnectorType: TypeConnector> {
 	
 }
 
-unsafe impl<T> Send for ScopedRefGuard<T> where T: TypeConnector, for<'a> <T as TypeConnector>::Super<'a>: Send {}
-unsafe impl<T> Sync for ScopedRefGuard<T> where T: TypeConnector, for<'a> <T as TypeConnector>::Super<'a>: Sync {}
+unsafe impl<ConnectorType: TypeConnector> Send for ScopedRefGuard<ConnectorType> where for<'a> <ConnectorType as TypeConnector>::Super<'a>: Send, [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {}
+unsafe impl<ConnectorType: TypeConnector> Sync for ScopedRefGuard<ConnectorType> where for<'a> <ConnectorType as TypeConnector>::Super<'a>: Sync, [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {}
 
-impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
+impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	/// Returns the inner data. This is similar to `deref()` from the `Deref` trait, but is separate because it requires special lifetimes
 	pub fn inner<'a>(&'a self) -> &'a ConnectorType::Super<'a> {
 		/*
@@ -59,7 +59,7 @@ impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> {
 	}
 }
 
-impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> {
+impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	fn drop(&mut self) {
 		#[cfg(not(feature = "no-pin"))]
 		{
@@ -93,19 +93,19 @@ impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> {
 	}
 }
 
-impl<ConnectorType: TypeConnector> std::fmt::Debug for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Debug {
+impl<ConnectorType: TypeConnector> std::fmt::Debug for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Debug, [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		self.inner().fmt(f)
 	}
 }
 
-impl<ConnectorType: TypeConnector> std::fmt::Display for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Display {
+impl<ConnectorType: TypeConnector> std::fmt::Display for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Display, [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		self.inner().fmt(f)
 	}
 }
 
-impl<ConnectorType: TypeConnector> Clone for ScopedRefGuard<ConnectorType> {
+impl<ConnectorType: TypeConnector> Clone for ScopedRefGuard<ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	fn clone(&self) -> Self {
 		#[cfg(not(feature = "no-pin"))]
 		self.counter_notify.0.fetch_add(1, Ordering::AcqRel);

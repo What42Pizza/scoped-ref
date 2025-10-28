@@ -71,6 +71,9 @@
 #![warn(missing_docs)]
 #![forbid(clippy::unwrap_used)]
 
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
+
 
 
 /// Everything about the `ScopedRef` type

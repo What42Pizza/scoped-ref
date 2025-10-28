@@ -34,9 +34,9 @@ macro_rules! make_scoped_ref {
 /// Allows you to create runtime-checked scope where a non-`'static` reference can be used as if it is `'static`.
 /// 
 /// This works because the static-friendly guards prevent their parent `ScopeRef` from being dropped, meaning their data can always be accessed as if it is static. The resulting functionality is similar to lifetimes superpowers of `std::thread::scope()`, but available everywhere
-pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
+pub struct ScopedRef<'a, ConnectorType: TypeConnector> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	
-	pub(crate) data_ptr: ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
+	pub(crate) data_ptr: [u8; std::mem::size_of::<&ConnectorType::Super<'static>>()],//ConnectorType::RawPointerStorage, // SAFETY: the raw data inside this var must be of the type &'a ConnectorType::Super<'a>
 	
 	// stores the counter and the notify together, which allows the `Arc<Notify>` when "no-pin" and "runtime-tokio" are used together
 	#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
@@ -52,7 +52,7 @@ pub struct ScopedRef<'a, ConnectorType: TypeConnector> {
 	
 }
 
-impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
+impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	
 	/// NOTE: `ScopedRef` is meant to be created using [make_scoped_ref].
 	/// 
@@ -67,7 +67,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 			Handle::current(); // check whether this is being called within a valid tokio runtime (only checks in debug mode, exists bc the drop fn already needs the handle and seeing the panic in `new()` is probably better than in the drop)
 		}
 		let mut output = Self {
-			data_ptr: ConnectorType::RAW_POINTER_DEFAULT,
+			data_ptr: [0; _],
 			
 			#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
 			counter_notify: (AtomicU32::new(0), Mutex::new(()), Condvar::new()),
@@ -82,7 +82,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 		};
 		let data_ptr: &'a ConnectorType::Super<'a> = data.into();
 		unsafe {
-			assert!(std::mem::size_of::<ConnectorType::RawPointerStorage>() >= std::mem::size_of::<&'a ConnectorType::Super<'a>>(), "Undefined behaviour prevented: not enough storage for the given reference. In the call to the `make_connector_type!()` macro, please edit (or add) the size needed");
+			// SAFETY: this should be safe because the `data_ptr` field is set to the same size as `&ConnectorType::Super`
 			*(&mut output.data_ptr as *mut _ as *mut &'a ConnectorType::Super<'a>) = data_ptr;
 		}
 		output
@@ -177,7 +177,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> {
 }
 
 // When `ScopedRef` is dropped, it must wait until all `ScopedRefGuards` have been dropped before continuing execution (unless a different feature is enabled)
-impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> {
+impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	fn drop(&mut self) {
 		#[cfg(feature = "unwind-does-abort")]
 		if std::thread::panicking() {
