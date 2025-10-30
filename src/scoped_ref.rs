@@ -92,6 +92,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 	/// 
 	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
 	#[cfg(not(feature = "no-pin"))]
+	#[inline]
 	pub fn new_ref(self: &Pin<&mut Self>) -> ScopedRefGuard<ConnectorType> {
 		self.counter_notify.0.fetch_add(1, Ordering::AcqRel);
 		ScopedRefGuard {
@@ -107,6 +108,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 	/// 
 	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
 	#[cfg(feature = "no-pin")]
+	#[inline]
 	pub fn new_ref(&self) -> ScopedRefGuard<ConnectorType> {
 		ScopedRefGuard {
 			data_ptr: self.data_ptr,
@@ -149,20 +151,21 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 	/// Blocks until all guards have been dropped (is async on async runtimes)
 	#[cfg(feature = "runtime-tokio")]
 	pub async fn await_guards(&self, timeout: Option<Duration>) {
-		if !self.has_active_guards() { return; }
 		#[cfg(not(feature = "no-pin"))]
 		let notify = &self.counter_notify.1;
 		#[cfg(feature = "no-pin")]
 		let notify = &*self.counter_notify;
+		let notify_future = notify.notified(); // creating the notify before checking the counter ensure no races
+		if !self.has_active_guards() { return; }
 		if let Some(timeout) = timeout {
-			let notify_future = notify.notified();
 			let _possible_notify_future = tokio::time::timeout(timeout, notify_future).await;
 		} else {
-			notify.notified().await;
+			notify_future.await;
 		}
 	}
 	
 	/// Returns whether there are still living `ScopedRefGuard`s that would cause dropping this `ScopedRef` to block
+	#[inline]
 	pub fn has_active_guards(&self) -> bool {
 		#[cfg(all(not(feature = "no-pin"), feature = "runtime-none" ))]
 		{ self.counter_notify.0.load(Ordering::Acquire) > 0}
@@ -179,11 +182,20 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 // When `ScopedRef` is dropped, it must wait until all `ScopedRefGuards` have been dropped before continuing execution (unless a different feature is enabled)
 impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	fn drop(&mut self) {
+		#[cfg(feature = "drop-does-abort")]
+		{
+			if self.has_active_guards() {
+				eprintln!("Attempting to drop a `ScopedRef` while it still has active guards");
+				std::process::abort()
+			}
+		}
 		#[cfg(feature = "unwind-does-abort")]
 		if std::thread::panicking() {
 			eprintln!("Program must be aborted due to a `ScopedRef` being dropped on unwind.");
 			std::process::abort();
 		}
+		#[cfg(feature = "unsafe-ignore-unwind")]
+		{}
 		#[cfg(feature = "drop-does-block")]
 		{
 			#[cfg(feature = "runtime-none")]
@@ -197,13 +209,6 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> whe
 						self.await_guards(None).await;
 					})
 				});
-			}
-		}
-		#[cfg(feature = "drop-does-abort")]
-		{
-			if self.has_active_guards() {
-				eprintln!("Attempting to drop a `ScopedRef` while it still has active guards");
-				std::process::abort();
 			}
 		}
 		#[cfg(feature = "unsafe-drop-does-panic")]

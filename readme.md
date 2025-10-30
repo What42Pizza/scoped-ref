@@ -40,7 +40,7 @@ drop(my_huge_data);
 | other crate | why use other crate? | why use this crate? |
 |-------------|----------------------|---------------------|
 | [Futures-Scopes](https://crates.io/crates/futures-scopes) | Directly tracks futures (instead of guards) | Likely faster |
-| [Scoped_Static](https://crates.io/crates/scoped_static) | Likely safer and easier | Likely faster |
+| [Scoped_Static](https://crates.io/crates/scoped_static) | Likely safer and easier | More features |
 | [Async-Scoped](https://crates.io/crates/async-scoped) | Same as `std::thread::scope` but async | Likely faster |
 | [Extend_Mut](https://crates.io/crates/extend_mut) | Less overhead | Much more flexible and async api is safe |
 

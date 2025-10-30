@@ -43,6 +43,7 @@ unsafe impl<ConnectorType: TypeConnector> Sync for ScopedRefGuard<ConnectorType>
 
 impl<ConnectorType: TypeConnector> ScopedRefGuard<ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	/// Returns the inner data. This is similar to `deref()` from the `Deref` trait, but is separate because it requires special lifetimes
+	#[inline]
 	pub fn inner<'a>(&'a self) -> &'a ConnectorType::Super<'a> {
 		/*
 		SAFETY (lifetime): the lifetime should be safe because
@@ -93,18 +94,21 @@ impl<ConnectorType: TypeConnector> Drop for ScopedRefGuard<ConnectorType> where 
 }
 
 impl<ConnectorType: TypeConnector> std::fmt::Debug for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Debug, [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		self.inner().fmt(f)
 	}
 }
 
 impl<ConnectorType: TypeConnector> std::fmt::Display for ScopedRefGuard<ConnectorType> where for<'a> ConnectorType::Super<'a>: std::fmt::Display, [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		self.inner().fmt(f)
 	}
 }
 
 impl<ConnectorType: TypeConnector> Clone for ScopedRefGuard<ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
+	#[inline]
 	fn clone(&self) -> Self {
 		#[cfg(not(feature = "no-pin"))]
 		self.counter_notify.0.fetch_add(1, Ordering::AcqRel);
