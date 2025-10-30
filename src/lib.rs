@@ -2,9 +2,11 @@
 //! 
 //! Similar functionality to the lifetimes of `std::thread::scope()`, but available everywhere. Allows non-`'static` lifetimes to be promoted to `'static` in a safe and extremely fast manner (theoretically faster than `Arc<T>` (when not using the "no-pin" feature), but not yet tested)
 //! 
+//! This works by having a struct (`ScopedRef`) that gives out and keeps track of a number of guards (`ScopedRefGuard`). When you use a `ScopedRefGuard` to get a reference to data, that `ScopedRefGuard` cannot be dropped until the reference from it is dropped, and the `ScopedRef` cannot be dropped until all `ScopedRefGuard`s created from it are dropped, and the underlying data being referenced cannot be dropped until the `ScopedRef` is dropped. This ensures that data referenced by this crate cannot be dropped while there are still living references given by a `ScopedRefGuard`.
+//! 
 //! ### Example usage:
 //! 
-//! This example is non-async, but this crate does support async/await by default
+//! This example is non-async, but this crate does support async/await (with the tokio runtime) by default
 //! 
 //! ```
 //! use ::scoped_ref::*;
@@ -53,7 +55,7 @@
 //! - **No runtime** if the `"runtime-none"` feature is enabled
 //! - **The tokio runtime** if the `"runtime-tokio"` feature is enabled
 //! 
-//! If support for more runtimes is needed, just open an issue and adding it should be fairly simple
+//! If support for more runtimes is needed, just open an issue and adding it should be somewhat simple
 //! 
 //! ## Feature flags:
 //! 

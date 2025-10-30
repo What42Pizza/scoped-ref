@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 
 
-/// Creates a new [ScopedRef] and assigns it to a variable. This uses the format `make_scoped_ref!(scope_var_name = reference_to_scope => ConnectorType);`
+/// Creates a new [ScopedRef] and assigns it to a variable. This uses the format `make_scoped_ref!(scope_var_name = (reference_to_scope) as ConnectorType);`
 #[macro_export]
 macro_rules! make_scoped_ref {
 	($scope:ident = ($input:expr) as $connector:ty) => {
@@ -90,7 +90,7 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 	
 	/// Returns a new guard that can be used to access `&T` as if it is `&'static T`
 	/// 
-	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
+	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it (unless the "no-pin" crate feature is enabled)
 	#[cfg(not(feature = "no-pin"))]
 	#[inline]
 	pub fn new_ref(self: &Pin<&mut Self>) -> ScopedRefGuard<ConnectorType> {
@@ -105,8 +105,6 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 		}
 	}
 	/// Returns a new guard that can be used to access `&T` as if it is `&'static T`
-	/// 
-	/// As you can see from the function signature, the `ScopedRef` has to be `pin!()`ed before this function can be called. This is due to the atomic counter in `ScopedRef`, which must always stay in the same location for `ScopedRefGuard` to properly access it
 	#[cfg(feature = "no-pin")]
 	#[inline]
 	pub fn new_ref(&self) -> ScopedRefGuard<ConnectorType> {
@@ -182,13 +180,6 @@ impl<'a, ConnectorType: TypeConnector> ScopedRef<'a, ConnectorType> where [(); s
 // When `ScopedRef` is dropped, it must wait until all `ScopedRefGuards` have been dropped before continuing execution (unless a different feature is enabled)
 impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	fn drop(&mut self) {
-		#[cfg(feature = "drop-does-abort")]
-		{
-			if self.has_active_guards() {
-				eprintln!("Attempting to drop a `ScopedRef` while it still has active guards");
-				std::process::abort()
-			}
-		}
 		#[cfg(feature = "unwind-does-abort")]
 		if std::thread::panicking() {
 			eprintln!("Program must be aborted due to a `ScopedRef` being dropped on unwind.");
@@ -209,6 +200,13 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> whe
 						self.await_guards(None).await;
 					})
 				});
+			}
+		}
+		#[cfg(feature = "drop-does-abort")]
+		{
+			if self.has_active_guards() {
+				eprintln!("Attempting to drop a `ScopedRef` while it still has active guards");
+				std::process::abort()
 			}
 		}
 		#[cfg(feature = "unsafe-drop-does-panic")]

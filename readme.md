@@ -46,7 +46,7 @@ drop(my_huge_data);
 
 ### Why is this crate likely faster than most others?
 
-There are only three sources of overhead, which are:
+This crate was designed to have the least amount of overhead possible. There are only three (very small) sources of overhead, which are:
 - Creating a new guard, which is a single atomic operation
 - Dropping a guard, which is a single atomic operation plus a cross-thread notify on last guard drop
 - Dropping a ScopedRef, which sleeps until notified (or immediately continues if there's already no remaining guards)

@@ -15,11 +15,9 @@ use std::sync::Arc;
 
 
 
-/// Similar to something like `MutexGuard`, but for keeping track of the number of references to `T`.
+/// Similar to something like `MutexGuard`, but for keeping track of the number of references.
 /// 
-/// A `ScopedRefGuard` can only be dropped once all references to it are dropped, and a `ScopedRef` can only be dropped once all `ScopedRefGuard`s have been dropped, and the underlying data `T` can only be dropped once the `ScopedRef` referencing it has been dropped
-/// 
-/// Also, this type only implements `Send` and/or `Sync` when the underlying reference implements `Send` and/or `Sync`
+/// Note: this type only implements `Send` and/or `Sync` when the underlying reference implements `Send` and/or `Sync`
 pub struct ScopedRefGuard<ConnectorType: TypeConnector> where [(); std::mem::size_of::<&ConnectorType::Super<'static>>()]: Sized {
 	
 	pub(crate) data_ptr: [u8; std::mem::size_of::<&ConnectorType::Super<'static>>()],
