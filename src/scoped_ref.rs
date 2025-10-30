@@ -199,9 +199,16 @@ impl<'a, ConnectorType: TypeConnector> Drop for ScopedRef<'a, ConnectorType> whe
 				});
 			}
 		}
+		#[cfg(feature = "drop-does-abort")]
+		{
+			if self.has_active_guards() {
+				eprintln!("Attempting to drop a `ScopedRef` while it still has active guards");
+				std::process::abort();
+			}
+		}
 		#[cfg(feature = "unsafe-drop-does-panic")]
 		{
-			if !self.has_active_guards() { panic!("Attempting to drop a `ScopedRef` while it still has active guards"); }
+			if self.has_active_guards() { panic!("Attempting to drop a `ScopedRef` while it still has active guards"); }
 		}
 		#[cfg(feature = "unsafe-drop-does-nothing")]
 		{}

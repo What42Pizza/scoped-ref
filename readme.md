@@ -1,6 +1,8 @@
 # Scoped Ref
 
-A fast, lightweight, and safe way to use non-`'static` data where `'static` is expected. This gives functionality similar to `std::thread::scoped()`, but this can be used anywhere (including async code).
+A fast, lightweight, and safe way to use non-`'static` references in `'static` contexts. This gives functionality similar to `std::thread::scoped()`, but this can be used anywhere (including async code).
+
+This is done with runtime checks
 
 ### Example usage:
 
@@ -9,8 +11,8 @@ let my_huge_data: Vec<u8> = get_huge_data();
 
 {
 	// Step 1: create the scope
-	make_type_connector!(SliceU8 = <'a> [u8]);
-	make_scoped_ref!(scoped_ref = (&*my_huge_data) as Sliceu8);
+	make_type_connector!(SliceU8 = <'a> [u8]); // creating this `SliceU8` type to represent `&[u8]` is necessary for crate functionality
+	make_scoped_ref!(scoped_data = (&*my_huge_data) as SliceU8);
 	
 	// Step 2: use the scope
 	let data_ref: ScopedRefGuard<SliceU8> = scoped_data.new_ref();
@@ -55,6 +57,7 @@ There are only three sources of overhead, which are:
 - `"runtime-tokio"` *: Specifies using the tokio runtime
 - `"no-pin"`: Allows more flexibility (by not pinning the `ScopedRef`), but adds heap allocation
 - `"drop-does-block"` *: Causes the drop function of `ScopedRef` to block until all guards have been dropped
+- `"drop-does-abort"`: Causes the drop function of `ScopedRef` to abort if there are still any guards active
 - `"unsafe-drop-does-panic"`: Causes the drop function of `ScopedRef` to panic if there are still any guards active (this is considered unsafe because when it does panic, the unwind will always create dangling pointers)
 - `"unsafe-drop-does-nothing"`: Causes the drop function of `ScopedRef` to do nothing, even if there are still guards active.
 - `"unwind-does-abort"` *: Causes `ScopedRef` to abort the program if dropped during a panic unwind. This is to ensure no danging pointers are created
@@ -65,4 +68,4 @@ There are only three sources of overhead, which are:
 ### Potential problems:
 
 - There might be some situations where `ScopedRef`'s drop function could block indefinitely, but that is likely better than potentially creating dangling pointers. This can be changed by enabling a different 'drop-does-' feature.
-- By design, this crate aborts the program if a `ScopedRef` in dropped because of an unwind. This is to ensure no dangling pointers are created on unwind. This can be changed by enabling the "unsafe-ignore-unwind" feature (and disabling the "unwind-does-abort" feature).
+- By design, this crate aborts the program if a `ScopedRef` is dropped because of an unwind. This is to ensure no dangling pointers are created on unwind. This can be changed by enabling the "unsafe-ignore-unwind" feature (and disabling the "unwind-does-abort" feature).

@@ -58,13 +58,16 @@
 //! ## Feature flags:
 //! 
 //! - `"runtime-none"`: Specifies using no special runtime
-//! - `"runtime-tokio"`: Specifies using the tokio runtime (enabled by default)
-//! - `"no-pin"`: Allows more flexibility (no pinning required), but adds heap allocation
-//! - `"drop-does-block"`: Causes the drop function of `ScopedRef` to block until all guards have been dropped (enabled by default)
-//! - `"unsafe-drop-does-panic"`: Causes the drop function of `ScopedRef` to panic if there are still have guards active (this is considered unsafe because when it does panic, the unwind will essentially always deallocate data that is still being used)
-//! - `"unsafe-drop-does-nothing"`: Causes the drop function of `ScopedRef` to do nothing, even if there are still guards active. 
-//! - `"drop-unwind-does-abort"`: Causes `ScopedRef` to abort the program if the dropped during a panic unwind. This is to ensure no danging pointers are created (enabled by default)
-//! - `"unsafe-ignore-unwind"`: This is the opposite of the "unwind-does-abort" feature. If this is enabled, `ScopedRef`'s drop function will not check for unwinds and will proceed as dictated by the 'drop-does-' features
+//! - `"runtime-tokio"` *: Specifies using the tokio runtime
+//! - `"no-pin"`: Allows more flexibility (by not pinning the `ScopedRef`), but adds heap allocation
+//! - `"drop-does-block"` *: Causes the drop function of `ScopedRef` to block until all guards have been dropped
+//! - `"drop-does-abort"`: Causes the drop function of `ScopedRef` to abort if there are still any guards active
+//! - `"unsafe-drop-does-panic"`: Causes the drop function of `ScopedRef` to panic if there are still any guards active (this is considered unsafe because when it does panic, the unwind will always create dangling pointers)
+//! - `"unsafe-drop-does-nothing"`: Causes the drop function of `ScopedRef` to do nothing, even if there are still guards active.
+//! - `"unwind-does-abort"` *: Causes `ScopedRef` to abort the program if dropped during a panic unwind. This is to ensure no danging pointers are created
+//! - `"unsafe-ignore-unwind"`: This is the opposite of the "unwind-does-abort" feature. If it is enabled, `ScopedRef`'s drop function will not check for unwinds and will proceed as dictated by the 'drop-does-' features
+//! 
+//! '*' = enabled by default
 
 
 
@@ -111,14 +114,16 @@ const _: () = {
 	let mut drop_count = 0;
 	#[cfg(feature = "drop-does-block")]
 	{ drop_count += 1; }
+	#[cfg(feature = "drop-does-abort")]
+	{ drop_count += 1; }
 	#[cfg(feature = "unsafe-drop-does-panic")]
 	{ drop_count += 1; }
 	#[cfg(feature = "unsafe-drop-does-nothing")]
 	{ drop_count += 1; }
 	match drop_count {
-		0 => panic!("At least one of these features must be enabled in the `scoped-ref` crate: \"drop-does-block\", \"unsafe-drop-does-panic\", or \"unsafe-drop-does-nothing\""),
+		0 => panic!("At least one of these features must be enabled in the `scoped-ref` crate: \"drop-does-block\", \"drop-does-abort\", \"unsafe-drop-does-panic\", or \"unsafe-drop-does-nothing\""),
 		1 => {}
-		_ => panic!("Only one of these features may be enabled in the `scoped-ref` crate: \"drop-does-block\", \"unsafe-drop-does-panic\", or \"unsafe-drop-does-nothing\" (be sure to check default features)"),
+		_ => panic!("Only one of these features may be enabled in the `scoped-ref` crate: \"drop-does-block\", \"drop-does-abort\", \"unsafe-drop-does-panic\", or \"unsafe-drop-does-nothing\" (be sure to check default features)"),
 	}
 	
 	let mut unwind_count = 0;
